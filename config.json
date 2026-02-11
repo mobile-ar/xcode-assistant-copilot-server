@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "xcode": {
+      "type": "local",
+      "command": "xcrun",
+      "args": ["mcpbridge"],
+      "allowedTools": ["*"]
+    }
+  },
+  "allowedCliTools": [],
+  "bodyLimitMiB": 4,
+  "excludedFilePatterns": [],
+  "reasoningEffort": "xhigh",
+  "autoApprovePermissions": ["read", "mcp"]
+}
