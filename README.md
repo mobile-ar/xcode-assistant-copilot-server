@@ -7,13 +7,13 @@ No API keys to manage, no third-party accounts — just your GitHub Copilot subs
 ## How It Works
 
 ```
-Xcode ──► Local Server (localhost:8080) ──► GitHub Copilot API
-         ┌─────────────────────────────┐
-         │  • GitHub device code OAuth │
-         │  • Manages Copilot tokens   │
-         │  • Streams SSE responses    │
-         │  • Optional MCP agent loop  │
-         └─────────────────────────────┘
+Xcode  ──►  Local Server (localhost:8080)  ──►  GitHub Copilot API
+           ┌──────────────────────────────┐
+           │  • GitHub device code OAuth  │
+           │  • Manages Copilot tokens    │
+           │  • Streams SSE responses     │
+           │  • Optional MCP agent loop   │
+           └──────────────────────────────┘
 ```
 
 The server exposes two OpenAI-compatible endpoints that Xcode connects to:
@@ -50,13 +50,27 @@ Clone the repository and build:
 ```sh
 git clone https://github.com/user/xcode-assistant-copilot-sever.git
 cd xcode-assistant-copilot-sever
-swift build
+swift build -c release
+sudo cp .build/release/xcode-assistant-copilot-sever /usr/local/bin/
 ```
+
+Source your shell config after copying the app
+
+```sh
+source ~/.zshrc
+```
+
+or exec your Shell
+```sh
+exec zsh
+```
+
+or **re-start your terminal** if none of the avobe works.
 
 ### 2. Run the Server
 
 ```sh
-swift run xcode-assistant-copilot-sever
+xcode-assistant-copilot-sever
 ```
 
 The server starts on `http://127.0.0.1:8080` by default.
@@ -111,13 +125,13 @@ Under the provider's **Advanced** settings in Xcode:
 Run on a custom port with debug logging:
 
 ```sh
-swift run xcode-assistant-copilot-sever --port 9090 --log-level debug
+xcode-assistant-copilot-sever --port 9090 --log-level debug
 ```
 
 Run with a custom configuration file:
 
 ```sh
-swift run xcode-assistant-copilot-sever --config ./config.json
+xcode-assistant-copilot-sever --config ./config.json
 ```
 
 ## Configuration
@@ -256,7 +270,7 @@ If you previously authenticated but the token has been revoked or expired, delet
 
 ```sh
 rm ~/.config/xcode-assistant-copilot-server/github-token.json
-swift run xcode-assistant-copilot-sever
+xcode-assistant-copilot-sever
 ```
 
 The server will trigger a fresh device code flow.
