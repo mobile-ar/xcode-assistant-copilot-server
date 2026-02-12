@@ -35,17 +35,28 @@ Once authenticated, the server exchanges your GitHub token for a short-lived Cop
 
 ## Requirements
 
-- **macOS 15** or newer
-- **Swift 6.2+** (install via [Swiftly](https://swiftlang.github.io/swiftly/))
+- **macOS 26** or newer
+- **Swift 6.2.3+** (install via [Swiftly](https://swiftlang.github.io/swiftly/))
 - **GitHub Copilot subscription** — Individual, Business, or Enterprise
 - **Xcode 26** or newer (Xcode 26.3+ for MCP tool support)
 - **GitHub CLI** (`gh`) — optional, used as a fallback authentication method
 
-## Setup
+## Installation
 
-### 1. Build the Server
+### Install via Homebrew (Recommended)
 
-Clone the repository and build:
+```sh
+brew install mobile-ar/xcode-assistant-copilot-sever/xcode-assistant-copilot-sever
+```
+or
+```sh
+brew tap mobile-ar/xcode-assistant-copilot-sever
+brew install xcode-assistant-copilot-sever
+```
+
+### Install manually
+
+#### 1. Clone the repository and build:
 
 ```sh
 git clone https://github.com/user/xcode-assistant-copilot-sever.git
@@ -54,20 +65,20 @@ swift build -c release
 sudo cp .build/release/xcode-assistant-copilot-sever /usr/local/bin/
 ```
 
-Source your shell config after copying the app
+#### 2. Source your shell config after copying the app
 
 ```sh
 source ~/.zshrc
 ```
-
 or exec your Shell
 ```sh
 exec zsh
 ```
-
 or **re-start your terminal** if none of the avobe works.
 
-### 2. Run the Server
+## Setup
+
+### 1. Run the Server
 
 ```sh
 xcode-assistant-copilot-sever
@@ -75,7 +86,7 @@ xcode-assistant-copilot-sever
 
 The server starts on `http://127.0.0.1:8080` by default.
 
-On the first run, if no stored OAuth token is found, the server will prompt you to authenticate via the GitHub device code flow:
+**On the first run, if no stored OAuth token is found, the server will prompt you to authenticate via the GitHub device code flow:**
 
 ```
 [INFO] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -87,7 +98,7 @@ On the first run, if no stored OAuth token is found, the server will prompt you 
 
 Open the URL, enter the code, and authorize the application. The token is stored for future use.
 
-### 3. (Optional) Install GitHub CLI
+### 2. (Optional) Install GitHub CLI
 
 If you prefer to authenticate via the GitHub CLI instead of the device code flow:
 
@@ -96,7 +107,7 @@ brew install gh
 gh auth login
 ```
 
-### 4. Connect Xcode
+### 3. Connect Xcode
 
 1. Open **Xcode → Settings → Intelligence**
 2. Click **Add a provider**
@@ -119,6 +130,8 @@ Under the provider's **Advanced** settings in Xcode:
 | `--port <number>` | `8080` | Port to listen on (1–65535) |
 | `--log-level <level>` | `info` | Log verbosity: `none`, `error`, `warning`, `info`, `debug`, `all` |
 | `--config <path>` | — | Path to a JSON configuration file |
+| `--version` | — | Show the version. |
+| `-h, --help` | — | Show help information. |
 
 ### Examples
 
