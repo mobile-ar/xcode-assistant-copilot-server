@@ -5,7 +5,8 @@ import XcodeAssistantCopilotServer
 struct App: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "xcode-assistant-copilot-sever",
-        abstract: "OpenAI-compatible proxy server for Xcode, powered by GitHub Copilot"
+        abstract: "OpenAI-compatible proxy server for Xcode, powered by GitHub Copilot",
+        version: "1.0.0"
     )
 
     @Option(name: .long, help: "Port to listen on (default: 8080)")

@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Swift
+        run: |
+          SWIFT_VERSION=$(cat .swift-version | tr -d '[:space:]')
+          echo "Using Swift ${SWIFT_VERSION}"
+          curl -sL https://raw.githubusercontent.com/swiftlang/swiftly/main/install/install.sh | bash -s -- --disable-confirmation
+          swiftly install "${SWIFT_VERSION}"
+          swiftly use "${SWIFT_VERSION}"
+          swift --version
+
+      - name: Resolve dependencies
+        run: swift package resolve
+
+      - name: Build (debug)
+        run: swift build
+
+      - name: Run tests
+        run: swift test
+
+      - name: Build (release)
+        run: swift build -c release
+
+      - name: Verify binary runs
+        run: |
+          .build/release/xcode-assistant-copilot-sever --help
+
+  formula-lint:
+    name: Lint Homebrew Formula
+    runs-on: macos-latest
+    needs: build-and-test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@master
+
+      - name: Lint formula (style only)
+        run: |
+          brew style homebrew/Formula/xcode-assistant-copilot-sever.rb || true
+
+      - name: Validate formula syntax
+        run: |
+          ruby -c homebrew/Formula/xcode-assistant-copilot-sever.rb

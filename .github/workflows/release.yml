@@ -1,0 +1,154 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Swift
+        run: |
+          SWIFT_VERSION=$(cat .swift-version | tr -d '[:space:]')
+          echo "Using Swift ${SWIFT_VERSION}"
+          curl -sL https://raw.githubusercontent.com/swiftlang/swiftly/main/install/install.sh | bash -s -- --disable-confirmation
+          swiftly install "${SWIFT_VERSION}"
+          swiftly use "${SWIFT_VERSION}"
+          swift --version
+
+      - name: Resolve dependencies
+        run: swift package resolve
+
+      - name: Build (debug)
+        run: swift build
+
+      - name: Run tests
+        run: swift test
+
+  release:
+    name: Create Release & Update Homebrew
+    runs-on: macos-latest
+    needs: build-and-test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Swift
+        run: |
+          SWIFT_VERSION=$(cat .swift-version | tr -d '[:space:]')
+          echo "Using Swift ${SWIFT_VERSION}"
+          curl -sL https://raw.githubusercontent.com/swiftlang/swiftly/main/install/install.sh | bash -s -- --disable-confirmation
+          swiftly install "${SWIFT_VERSION}"
+          swiftly use "${SWIFT_VERSION}"
+          swift --version
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Extracted version: ${VERSION} from tag: ${TAG}"
+
+      - name: Build release binary
+        run: swift build -c release
+
+      - name: Prepare binary for release asset
+        id: binary
+        run: |
+          BINARY_NAME="xcode-assistant-copilot-sever"
+          BINARY_PATH=".build/release/${BINARY_NAME}"
+          ARCH=$(uname -m)
+          ASSET_NAME="${BINARY_NAME}-${ARCH}-apple-darwin"
+          ASSET_TAR="${ASSET_NAME}.tar.gz"
+
+          tar -czf "${ASSET_TAR}" -C .build/release "${BINARY_NAME}"
+
+          echo "asset_path=${ASSET_TAR}" >> "$GITHUB_OUTPUT"
+          echo "asset_name=${ASSET_TAR}" >> "$GITHUB_OUTPUT"
+          echo "Prepared release asset: ${ASSET_TAR}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          ASSET="${{ steps.binary.outputs.asset_path }}"
+
+          gh release create "${TAG}" "${ASSET}" \
+            --title "${TAG}" \
+            --generate-notes
+
+      - name: Download source tarball and compute SHA256
+        id: sha256
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          TARBALL_URL="https://github.com/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz"
+          curl -sL -o source.tar.gz "${TARBALL_URL}"
+          SHA256=$(shasum -a 256 source.tar.gz | awk '{print $1}')
+          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
+          echo "tarball_url=${TARBALL_URL}" >> "$GITHUB_OUTPUT"
+          echo "Tarball URL: ${TARBALL_URL}"
+          echo "Computed SHA256: ${SHA256}"
+
+      - name: Checkout Homebrew tap repository
+        uses: actions/checkout@v4
+        with:
+          repository: mobile-ar/homebrew-xcode-assistant-copilot-sever
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Ensure Formula directory exists
+        run: mkdir -p homebrew-tap/Formula
+
+      - name: Copy template formula and update version fields
+        run: |
+          FORMULA_SRC="homebrew/Formula/xcode-assistant-copilot-sever.rb"
+          FORMULA_DST="homebrew-tap/Formula/xcode-assistant-copilot-sever.rb"
+
+          cp "${FORMULA_SRC}" "${FORMULA_DST}"
+
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
+          SHA256="${{ steps.sha256.outputs.sha256 }}"
+          TARBALL_URL="${{ steps.sha256.outputs.tarball_url }}"
+
+          sed -i '' "s|https://github.com/mobile-ar/xcode-assistant-copilot-sever/archive/refs/tags/v[^\"]*\.tar\.gz|${TARBALL_URL}|" "${FORMULA_DST}"
+          sed -i '' "s|sha256 \".*\"|sha256 \"${SHA256}\"|" "${FORMULA_DST}"
+
+          echo "Formula updated for version ${VERSION}:"
+          head -10 "${FORMULA_DST}"
+
+      - name: Validate formula syntax
+        run: ruby -c homebrew-tap/Formula/xcode-assistant-copilot-sever.rb
+
+      - name: Commit and push formula update
+        working-directory: homebrew-tap
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add Formula/xcode-assistant-copilot-sever.rb
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          VERSION="${{ steps.version.outputs.version }}"
+          git commit -m "xcode-assistant-copilot-sever ${VERSION}"
+          git push origin main
