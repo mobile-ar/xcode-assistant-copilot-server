@@ -46,12 +46,12 @@ Once authenticated, the server exchanges your GitHub token for a short-lived Cop
 ### Install via Homebrew (Recommended)
 
 ```sh
-brew install mobile-ar/xcode-assistant-copilot-sever/xcode-assistant-copilot-sever
+brew install mobile-ar/xcode-assistant-copilot-server/xcode-assistant-copilot-server
 ```
 or
 ```sh
-brew tap mobile-ar/xcode-assistant-copilot-sever
-brew install xcode-assistant-copilot-sever
+brew tap mobile-ar/xcode-assistant-copilot-server
+brew install xcode-assistant-copilot-server
 ```
 
 ### Install manually
@@ -59,10 +59,10 @@ brew install xcode-assistant-copilot-sever
 #### 1. Clone the repository and build:
 
 ```sh
-git clone https://github.com/user/xcode-assistant-copilot-sever.git
-cd xcode-assistant-copilot-sever
+git clone https://github.com/user/xcode-assistant-copilot-server.git
+cd xcode-assistant-copilot-server
 swift build -c release
-sudo cp .build/release/xcode-assistant-copilot-sever /usr/local/bin/
+sudo cp .build/release/xcode-assistant-copilot-server /usr/local/bin/
 ```
 
 #### 2. Source your shell config after copying the app
@@ -81,7 +81,7 @@ or **re-start your terminal** if none of the avobe works.
 ### 1. Run the Server
 
 ```sh
-xcode-assistant-copilot-sever
+xcode-assistant-copilot-server
 ```
 
 The server starts on `http://127.0.0.1:8080` by default.
@@ -138,13 +138,13 @@ Under the provider's **Advanced** settings in Xcode:
 Run on a custom port with debug logging:
 
 ```sh
-xcode-assistant-copilot-sever --port 9090 --log-level debug
+xcode-assistant-copilot-server --port 9090 --log-level debug
 ```
 
 Run with a custom configuration file:
 
 ```sh
-xcode-assistant-copilot-sever --config ./config.json
+xcode-assistant-copilot-server --config ./config.json
 ```
 
 ## Configuration
@@ -260,7 +260,7 @@ Sources/
     Services/                           # Auth, Copilot API, MCP bridge, SSE
     Utilities/                          # Logger, prompt formatter
 
-  xcode-assistant-copilot-sever/        # Executable target
+  xcode-assistant-copilot-server/       # Executable target
     App.swift                           # CLI entry point
 
 Tests/
@@ -283,7 +283,7 @@ If you previously authenticated but the token has been revoked or expired, delet
 
 ```sh
 rm ~/.config/xcode-assistant-copilot-server/github-token.json
-xcode-assistant-copilot-sever
+xcode-assistant-copilot-server
 ```
 
 The server will trigger a fresh device code flow.

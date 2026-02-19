@@ -4,7 +4,7 @@ import XcodeAssistantCopilotServer
 @main
 struct App: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "xcode-assistant-copilot-sever",
+        commandName: "xcode-assistant-copilot-server",
         abstract: "OpenAI-compatible proxy server for Xcode, powered by GitHub Copilot",
         version: "1.0.0"
     )

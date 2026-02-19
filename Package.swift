@@ -3,12 +3,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "xcode-assistant-copilot-sever",
+    name: "xcode-assistant-copilot-server",
     platforms: [.macOS(.v15)],
     products: [
         .executable(
-            name: "xcode-assistant-copilot-sever",
-            targets: ["xcode-assistant-copilot-sever"]
+            name: "xcode-assistant-copilot-server",
+            targets: ["xcode-assistant-copilot-server"]
         ),
         .library(
             name: "XcodeAssistantCopilotServer",
@@ -28,7 +28,7 @@ let package = Package(
             path: "Sources/XcodeAssistantCopilotServer"
         ),
         .executableTarget(
-            name: "xcode-assistant-copilot-sever",
+            name: "xcode-assistant-copilot-server",
             dependencies: [
                 "XcodeAssistantCopilotServer",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),

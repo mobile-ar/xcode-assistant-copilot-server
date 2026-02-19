@@ -65,7 +65,7 @@ jobs:
       - name: Prepare binary for release asset
         id: binary
         run: |
-          BINARY_NAME="xcode-assistant-copilot-sever"
+          BINARY_NAME="xcode-assistant-copilot-server"
           BINARY_PATH=".build/release/${BINARY_NAME}"
           ARCH=$(uname -m)
           ASSET_NAME="${BINARY_NAME}-${ARCH}-apple-darwin"
@@ -103,7 +103,7 @@ jobs:
       - name: Checkout Homebrew tap repository
         uses: actions/checkout@v4
         with:
-          repository: mobile-ar/homebrew-xcode-assistant-copilot-sever
+          repository: mobile-ar/homebrew-xcode-assistant-copilot-server
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-tap
 
@@ -112,8 +112,8 @@ jobs:
 
       - name: Copy template formula and update version fields
         run: |
-          FORMULA_SRC="homebrew/Formula/xcode-assistant-copilot-sever.rb"
-          FORMULA_DST="homebrew-tap/Formula/xcode-assistant-copilot-sever.rb"
+          FORMULA_SRC="homebrew/Formula/xcode-assistant-copilot-server.rb"
+          FORMULA_DST="homebrew-tap/Formula/xcode-assistant-copilot-server.rb"
 
           cp "${FORMULA_SRC}" "${FORMULA_DST}"
 
@@ -122,14 +122,14 @@ jobs:
           SHA256="${{ steps.sha256.outputs.sha256 }}"
           TARBALL_URL="${{ steps.sha256.outputs.tarball_url }}"
 
-          sed -i '' "s|https://github.com/mobile-ar/xcode-assistant-copilot-sever/archive/refs/tags/v[^\"]*\.tar\.gz|${TARBALL_URL}|" "${FORMULA_DST}"
+          sed -i '' "s|https://github.com/mobile-ar/xcode-assistant-copilot-server/archive/refs/tags/v[^\"]*\.tar\.gz|${TARBALL_URL}|" "${FORMULA_DST}"
           sed -i '' "s|sha256 \".*\"|sha256 \"${SHA256}\"|" "${FORMULA_DST}"
 
           echo "Formula updated for version ${VERSION}:"
           head -10 "${FORMULA_DST}"
 
       - name: Validate formula syntax
-        run: ruby -c homebrew-tap/Formula/xcode-assistant-copilot-sever.rb
+        run: ruby -c homebrew-tap/Formula/xcode-assistant-copilot-server.rb
 
       - name: Commit and push formula update
         working-directory: homebrew-tap
@@ -137,7 +137,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add Formula/xcode-assistant-copilot-sever.rb
+          git add Formula/xcode-assistant-copilot-server.rb
 
           if git diff --cached --quiet; then
             echo "No changes to commit"
@@ -145,5 +145,5 @@ jobs:
           fi
 
           VERSION="${{ steps.version.outputs.version }}"
-          git commit -m "xcode-assistant-copilot-sever ${VERSION}"
+          git commit -m "xcode-assistant-copilot-server ${VERSION}"
           git push origin main

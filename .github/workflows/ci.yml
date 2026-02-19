@@ -40,7 +40,7 @@ jobs:
 
       - name: Verify binary runs
         run: |
-          .build/release/xcode-assistant-copilot-sever --help
+          .build/release/xcode-assistant-copilot-server --help
 
   formula-lint:
     name: Lint Homebrew Formula
@@ -55,8 +55,8 @@ jobs:
 
       - name: Lint formula (style only)
         run: |
-          brew style homebrew/Formula/xcode-assistant-copilot-sever.rb || true
+          brew style homebrew/Formula/xcode-assistant-copilot-server.rb || true
 
       - name: Validate formula syntax
         run: |
-          ruby -c homebrew/Formula/xcode-assistant-copilot-sever.rb
+          ruby -c homebrew/Formula/xcode-assistant-copilot-server.rb
