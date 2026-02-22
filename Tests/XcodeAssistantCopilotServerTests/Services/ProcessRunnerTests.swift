@@ -209,3 +209,56 @@ struct MockProcessRunner: ProcessRunnerProtocol {
     #expect(result.stdout == "partial output")
     #expect(result.stderr == "critical error")
 }
+
+@Test func processRunnerHandlesLargeStdoutWithoutDeadlock() async throws {
+    let runner = ProcessRunner()
+    let lineCount = 10000
+    let result = try await runner.run(
+        executablePath: "/bin/sh",
+        arguments: ["-c", "seq 1 \(lineCount)"]
+    )
+    #expect(result.succeeded == true)
+    let lines = result.stdout.split(separator: "\n")
+    #expect(lines.count == lineCount)
+    #expect(lines.first == "1")
+    #expect(lines.last == "\(lineCount)")
+}
+
+@Test func processRunnerHandlesLargeStderrWithoutDeadlock() async throws {
+    let runner = ProcessRunner()
+    let lineCount = 10000
+    let result = try await runner.run(
+        executablePath: "/bin/sh",
+        arguments: ["-c", "seq 1 \(lineCount) >&2; exit 1"]
+    )
+    #expect(result.succeeded == false)
+    #expect(result.exitCode == 1)
+    let lines = result.stderr.split(separator: "\n")
+    #expect(lines.count == lineCount)
+    #expect(lines.first == "1")
+    #expect(lines.last == "\(lineCount)")
+}
+
+@Test func processRunnerHandlesLargeConcurrentStdoutAndStderrWithoutDeadlock() async throws {
+    let runner = ProcessRunner()
+    let lineCount = 5000
+    let script = """
+    for i in $(seq 1 \(lineCount)); do
+        echo "out_$i"
+        echo "err_$i" >&2
+    done
+    """
+    let result = try await runner.run(
+        executablePath: "/bin/sh",
+        arguments: ["-c", script]
+    )
+    #expect(result.succeeded == true)
+    let stdoutLines = result.stdout.split(separator: "\n")
+    let stderrLines = result.stderr.split(separator: "\n")
+    #expect(stdoutLines.count == lineCount)
+    #expect(stderrLines.count == lineCount)
+    #expect(stdoutLines.first == "out_1")
+    #expect(stdoutLines.last == "out_\(lineCount)")
+    #expect(stderrLines.first == "err_1")
+    #expect(stderrLines.last == "err_\(lineCount)")
+}
