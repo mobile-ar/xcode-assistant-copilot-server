@@ -46,6 +46,7 @@ public actor MCPBridgeService: MCPBridgeServiceProtocol {
     private var pendingRequests: [Int: CheckedContinuation<MCPResponse, Error>] = [:]
     private var cachedTools: [MCPTool]?
     private var readTask: Task<Void, Never>?
+    private var stderrReadTask: Task<Void, Never>?
     private var lineBuffer: String = ""
 
     public init(serverConfig: MCPServerConfiguration, logger: LoggerProtocol) {
@@ -116,6 +117,8 @@ public actor MCPBridgeService: MCPBridgeServiceProtocol {
     public func stop() async throws {
         readTask?.cancel()
         readTask = nil
+        stderrReadTask?.cancel()
+        stderrReadTask = nil
 
         for (id, continuation) in pendingRequests {
             continuation.resume(throwing: MCPBridgeError.communicationFailed("Bridge is stopping"))
@@ -285,18 +288,12 @@ public actor MCPBridgeService: MCPBridgeServiceProtocol {
 
     private func startReadingStdout(from pipe: Pipe) {
         let fileHandle = pipe.fileHandleForReading
+        let stream = fileHandle.asyncDataStream()
 
         readTask = Task { [weak self] in
-            while !Task.isCancelled {
-                let data = fileHandle.availableData
-                guard !data.isEmpty else {
-                    break
-                }
-
-                guard let text = String(data: data, encoding: .utf8) else {
-                    continue
-                }
-
+            for await data in stream {
+                guard !Task.isCancelled else { break }
+                guard let text = String(data: data, encoding: .utf8) else { continue }
                 await self?.processIncomingText(text)
             }
         }
@@ -304,12 +301,11 @@ public actor MCPBridgeService: MCPBridgeServiceProtocol {
 
     private func startReadingStderr(from pipe: Pipe) {
         let fileHandle = pipe.fileHandleForReading
+        let stream = fileHandle.asyncDataStream()
 
-        Task { [logger] in
-            while true {
-                let data = fileHandle.availableData
-                guard !data.isEmpty else { break }
-
+        stderrReadTask = Task { [logger] in
+            for await data in stream {
+                guard !Task.isCancelled else { break }
                 if let text = String(data: data, encoding: .utf8) {
                     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty {
@@ -400,6 +396,10 @@ public actor MCPBridgeService: MCPBridgeServiceProtocol {
     }
 
     private func cleanup() {
+        readTask?.cancel()
+        readTask = nil
+        stderrReadTask?.cancel()
+        stderrReadTask = nil
         process = nil
         stdinPipe = nil
         stdoutPipe = nil
