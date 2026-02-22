@@ -337,7 +337,7 @@ public actor MCPBridgeService: MCPBridgeServiceProtocol {
         }
 
         do {
-            let response = try MCPResponseParser.parse(from: data)
+            let response = try JSONDecoder().decode(MCPResponse.self, from: data)
 
             if let id = response.id, let continuation = pendingRequests.removeValue(forKey: id) {
                 logger.debug("Received MCP response for request #\(id)")
