@@ -9,10 +9,10 @@ struct App: AsyncParsableCommand {
         version: "1.0.2"
     )
 
-    @Option(name: .long, help: "Port to listen on (default: 8080)")
+    @Option(name: .long, help: "Port to listen on")
     var port: Int = 8080
 
-    @Option(name: .long, help: "Log verbosity: none, error, warning, info, debug, all (default: info)")
+    @Option(name: .long, help: "Log verbosity: none, error, warning, info, debug, all")
     var logLevel: String = "info"
 
     @Option(name: .long, help: "Path to JSON config file")
