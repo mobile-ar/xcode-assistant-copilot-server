@@ -93,11 +93,10 @@ public struct CompletionsHandler: Sendable {
 
         let eventStream: AsyncThrowingStream<SSEEvent, Error>
         do {
-            let result = try await copilotAPI.streamChatCompletions(
+            eventStream = try await copilotAPI.streamChatCompletions(
                 request: copilotRequest,
                 credentials: credentials
             )
-            eventStream = result.0
         } catch {
             logger.error("Copilot API streaming failed: \(error)")
             return errorResponse(
@@ -285,7 +284,7 @@ public struct CompletionsHandler: Sendable {
         credentials: CopilotCredentials,
         model: String
     ) async throws -> CollectedResponse {
-        let (eventStream, _) = try await copilotAPI.streamChatCompletions(
+        let eventStream = try await copilotAPI.streamChatCompletions(
             request: request,
             credentials: credentials
         )

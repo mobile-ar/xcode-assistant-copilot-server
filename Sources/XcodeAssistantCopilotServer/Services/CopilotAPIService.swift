@@ -31,7 +31,7 @@ public protocol CopilotAPIServiceProtocol: Sendable {
     func streamChatCompletions(
         request: CopilotChatRequest,
         credentials: CopilotCredentials
-    ) async throws -> (AsyncThrowingStream<SSEEvent, Error>, URLSessionTask)
+    ) async throws -> AsyncThrowingStream<SSEEvent, Error>
 }
 
 public struct CopilotChatRequest: Sendable {
@@ -115,7 +115,7 @@ public final class CopilotAPIService: CopilotAPIServiceProtocol, @unchecked Send
     public func streamChatCompletions(
         request: CopilotChatRequest,
         credentials: CopilotCredentials
-    ) async throws -> (AsyncThrowingStream<SSEEvent, Error>, URLSessionTask) {
+    ) async throws -> AsyncThrowingStream<SSEEvent, Error> {
         let url = try buildURL(baseURL: credentials.apiEndpoint, path: Self.chatCompletionsPath)
 
         var urlRequest = URLRequest(url: url)
@@ -149,9 +149,7 @@ public final class CopilotAPIService: CopilotAPIServiceProtocol, @unchecked Send
             throw CopilotAPIError.requestFailed(statusCode: httpResponse.statusCode, body: body)
         }
 
-        let eventStream = sseParser.parse(bytes: bytes)
-        let task = session.dataTask(with: urlRequest)
-        return (eventStream, task)
+        return sseParser.parse(bytes: bytes)
     }
 
     private func buildURL(baseURL: String, path: String) throws -> URL {
