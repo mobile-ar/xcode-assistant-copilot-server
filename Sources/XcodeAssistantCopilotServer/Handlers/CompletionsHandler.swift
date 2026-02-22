@@ -184,8 +184,6 @@ public struct CompletionsHandler: Sendable {
         }
 
         var iteration = 0
-        var finalContent = ""
-        var finalToolCalls: [ToolCall]?
 
         while iteration < Self.maxAgentLoopIterations {
             iteration += 1
@@ -248,34 +246,137 @@ public struct CompletionsHandler: Sendable {
                     }
 
                     if !otherCalls.isEmpty {
-                        finalContent = responseContent
-                        finalToolCalls = otherCalls
-                        break
+                        logger.info("Agent loop completed after \(iteration) iteration(s), streaming buffered response with non-MCP tool calls")
+                        return buildBufferedStreamingResponse(
+                            completionId: completionId,
+                            model: model,
+                            content: responseContent,
+                            toolCalls: otherCalls
+                        )
                     }
 
-                    continue
+                    logger.info("MCP tool(s) executed, streaming final response directly")
+                    return await streamFinalAgentResponse(
+                        request: request,
+                        credentials: credentials,
+                        messages: messages,
+                        model: model,
+                        allTools: allTools
+                    )
                 } else {
-                    finalContent = responseContent
-                    finalToolCalls = responseToolCalls
-                    break
+                    logger.info("Agent loop completed after \(iteration) iteration(s), streaming buffered response with tool calls")
+                    return buildBufferedStreamingResponse(
+                        completionId: completionId,
+                        model: model,
+                        content: responseContent,
+                        toolCalls: responseToolCalls
+                    )
                 }
             } else {
-                finalContent = responseContent
-                finalToolCalls = nil
-                break
+                logger.info("Agent loop completed after \(iteration) iteration(s), streaming buffered response")
+                return buildBufferedStreamingResponse(
+                    completionId: completionId,
+                    model: model,
+                    content: responseContent,
+                    toolCalls: nil
+                )
             }
         }
 
-        if iteration >= Self.maxAgentLoopIterations {
-            logger.warn("Agent loop hit maximum iterations (\(Self.maxAgentLoopIterations))")
-        }
-
-        logger.info("Agent loop completed after \(iteration) iteration(s), streaming response")
-        return buildStreamingResponse(
+        logger.warn("Agent loop hit maximum iterations (\(Self.maxAgentLoopIterations))")
+        return buildBufferedStreamingResponse(
             completionId: completionId,
             model: model,
-            content: finalContent,
-            toolCalls: finalToolCalls
+            content: "",
+            toolCalls: nil
+        )
+    }
+
+    private func streamFinalAgentResponse(
+        request: ChatCompletionRequest,
+        credentials: CopilotCredentials,
+        messages: [ChatCompletionMessage],
+        model: String,
+        allTools: [Tool]
+    ) async -> Response {
+        let copilotRequest = CopilotChatRequest(
+            model: model,
+            messages: messages,
+            temperature: request.temperature,
+            topP: request.topP,
+            maxTokens: request.maxTokens,
+            stop: request.stop,
+            tools: allTools.isEmpty ? nil : allTools,
+            toolChoice: request.toolChoice,
+            reasoningEffort: configuration.reasoningEffort,
+            stream: true
+        )
+
+        let eventStream: AsyncThrowingStream<SSEEvent, Error>
+        do {
+            eventStream = try await copilotAPI.streamChatCompletions(
+                request: copilotRequest,
+                credentials: credentials
+            )
+        } catch {
+            logger.error("Copilot API streaming failed for final agent response: \(error)")
+            return errorResponse(
+                status: .internalServerError,
+                type: "api_error",
+                message: "Failed to start streaming: \(error)"
+            )
+        }
+
+        logger.info("Streaming final agent response directly")
+
+        let responseStream = AsyncStream<ByteBuffer> { continuation in
+            Task {
+                do {
+                    try await withThrowingTaskGroup(of: Void.self) { group in
+                        group.addTask {
+                            try await Task.sleep(for: .seconds(Self.requestTimeoutSeconds))
+                            throw CompletionsHandlerError.timeout
+                        }
+
+                        group.addTask { [logger] in
+                            do {
+                                for try await event in eventStream {
+                                    if Task.isCancelled { break }
+
+                                    if event.isDone {
+                                        let doneBuffer = ByteBuffer(string: "data: [DONE]\n\n")
+                                        continuation.yield(doneBuffer)
+                                        break
+                                    }
+
+                                    let sseData = "data: \(event.data)\n\n"
+                                    let buffer = ByteBuffer(string: sseData)
+                                    continuation.yield(buffer)
+                                }
+                            } catch {
+                                logger.error("Stream error: \(error)")
+                            }
+                            continuation.finish()
+                        }
+
+                        if let firstResult = try await group.next() {
+                            _ = firstResult
+                        }
+                        group.cancelAll()
+                    }
+                } catch {
+                    if error is CompletionsHandlerError {
+                        logger.warn("Stream timed out after \(Self.requestTimeoutSeconds) seconds")
+                    }
+                    continuation.finish()
+                }
+            }
+        }
+
+        return Response(
+            status: .ok,
+            headers: sseHeaders(),
+            body: .init(asyncSequence: responseStream)
         )
     }
 
@@ -361,37 +462,30 @@ public struct CompletionsHandler: Sendable {
         }
     }
 
-    private func buildStreamingResponse(
+    private func buildBufferedStreamingResponse(
         completionId: String,
         model: String,
         content: String,
         toolCalls: [ToolCall]?
     ) -> Response {
         let responseStream = AsyncStream<ByteBuffer> { continuation in
+            let encoder = JSONEncoder()
+
             let roleChunk = ChatCompletionChunk.makeRoleDelta(id: completionId, model: model)
-            if let data = try? JSONEncoder().encode(roleChunk),
+            if let data = try? encoder.encode(roleChunk),
                let jsonString = String(data: data, encoding: .utf8) {
                 continuation.yield(ByteBuffer(string: "data: \(jsonString)\n\n"))
             }
 
             if !content.isEmpty {
-                let chunkSize = 20
-                var index = content.startIndex
-                while index < content.endIndex {
-                    let end = content.index(index, offsetBy: chunkSize, limitedBy: content.endIndex) ?? content.endIndex
-                    let piece = String(content[index..<end])
-
-                    let contentChunk = ChatCompletionChunk.makeContentDelta(
-                        id: completionId,
-                        model: model,
-                        content: piece
-                    )
-                    if let data = try? JSONEncoder().encode(contentChunk),
-                       let jsonString = String(data: data, encoding: .utf8) {
-                        continuation.yield(ByteBuffer(string: "data: \(jsonString)\n\n"))
-                    }
-
-                    index = end
+                let contentChunk = ChatCompletionChunk.makeContentDelta(
+                    id: completionId,
+                    model: model,
+                    content: content
+                )
+                if let data = try? encoder.encode(contentChunk),
+                   let jsonString = String(data: data, encoding: .utf8) {
+                    continuation.yield(ByteBuffer(string: "data: \(jsonString)\n\n"))
                 }
             }
 
@@ -401,7 +495,7 @@ public struct CompletionsHandler: Sendable {
                     model: model,
                     toolCalls: toolCalls
                 )
-                if let data = try? JSONEncoder().encode(toolCallChunk),
+                if let data = try? encoder.encode(toolCallChunk),
                    let jsonString = String(data: data, encoding: .utf8) {
                     continuation.yield(ByteBuffer(string: "data: \(jsonString)\n\n"))
                 }
@@ -411,13 +505,13 @@ public struct CompletionsHandler: Sendable {
                     model: model,
                     choices: [ChunkChoice(delta: ChunkDelta(), finishReason: "tool_calls")]
                 )
-                if let data = try? JSONEncoder().encode(finishChunk),
+                if let data = try? encoder.encode(finishChunk),
                    let jsonString = String(data: data, encoding: .utf8) {
                     continuation.yield(ByteBuffer(string: "data: \(jsonString)\n\n"))
                 }
             } else {
                 let stopChunk = ChatCompletionChunk.makeStopDelta(id: completionId, model: model)
-                if let data = try? JSONEncoder().encode(stopChunk),
+                if let data = try? encoder.encode(stopChunk),
                    let jsonString = String(data: data, encoding: .utf8) {
                     continuation.yield(ByteBuffer(string: "data: \(jsonString)\n\n"))
                 }

@@ -34,7 +34,7 @@ public protocol CopilotAPIServiceProtocol: Sendable {
     ) async throws -> AsyncThrowingStream<SSEEvent, Error>
 }
 
-public struct CopilotChatRequest: Sendable {
+public struct CopilotChatRequest: Encodable, Sendable {
     public let model: String
     public let messages: [ChatCompletionMessage]
     public let temperature: Double?
@@ -45,6 +45,19 @@ public struct CopilotChatRequest: Sendable {
     public let toolChoice: AnyCodable?
     public let reasoningEffort: ReasoningEffort?
     public let stream: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case model
+        case messages
+        case temperature
+        case topP = "top_p"
+        case maxTokens = "max_tokens"
+        case stop
+        case tools
+        case toolChoice = "tool_choice"
+        case reasoningEffort = "reasoning_effort"
+        case stream
+    }
 
     public init(
         model: String,
@@ -68,6 +81,22 @@ public struct CopilotChatRequest: Sendable {
         self.toolChoice = toolChoice
         self.reasoningEffort = reasoningEffort
         self.stream = stream
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(model, forKey: .model)
+        try container.encode(messages, forKey: .messages)
+        try container.encode(stream, forKey: .stream)
+        try container.encodeIfPresent(temperature, forKey: .temperature)
+        try container.encodeIfPresent(topP, forKey: .topP)
+        try container.encodeIfPresent(maxTokens, forKey: .maxTokens)
+        try container.encodeIfPresent(stop, forKey: .stop)
+        if let tools, !tools.isEmpty {
+            try container.encode(tools, forKey: .tools)
+        }
+        try container.encodeIfPresent(toolChoice, forKey: .toolChoice)
+        try container.encodeIfPresent(reasoningEffort, forKey: .reasoningEffort)
     }
 }
 
@@ -125,8 +154,11 @@ public final class CopilotAPIService: CopilotAPIServiceProtocol, @unchecked Send
         urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         urlRequest.setValue("conversation-panel", forHTTPHeaderField: "Openai-Intent")
 
-        let body = buildRequestBody(from: request)
-        urlRequest.httpBody = try encodeBody(body)
+        do {
+            urlRequest.httpBody = try JSONEncoder().encode(request)
+        } catch {
+            throw CopilotAPIError.streamingFailed("Failed to encode request body: \(error.localizedDescription)")
+        }
 
         logger.debug("Sending chat completion request for model: \(request.model) to \(credentials.apiEndpoint)")
 
@@ -168,130 +200,6 @@ public final class CopilotAPIService: CopilotAPIServiceProtocol, @unchecked Send
         request.setValue("Xcode/26.0", forHTTPHeaderField: "Editor-Version")
         request.setValue("copilot-xcode/0.1.0", forHTTPHeaderField: "Editor-Plugin-Version")
         request.setValue("vscode-chat", forHTTPHeaderField: "Copilot-Integration-Id")
-    }
-
-    private func buildRequestBody(from request: CopilotChatRequest) -> [String: Any] {
-        var body: [String: Any] = [
-            "model": request.model,
-            "stream": request.stream,
-        ]
-
-        body["messages"] = request.messages.map { encodeMessage($0) }
-
-        if let temperature = request.temperature {
-            body["temperature"] = temperature
-        }
-        if let topP = request.topP {
-            body["top_p"] = topP
-        }
-        if let maxTokens = request.maxTokens {
-            body["max_tokens"] = maxTokens
-        }
-        if let stop = request.stop {
-            switch stop {
-            case .single(let value):
-                body["stop"] = value
-            case .multiple(let values):
-                body["stop"] = values
-            }
-        }
-        if let tools = request.tools, !tools.isEmpty {
-            body["tools"] = encodeTools(tools)
-        }
-        if let toolChoice = request.toolChoice {
-            body["tool_choice"] = encodeAnyCodable(toolChoice)
-        }
-        if let reasoningEffort = request.reasoningEffort {
-            body["reasoning_effort"] = reasoningEffort.rawValue
-        }
-
-        return body
-    }
-
-    private func encodeMessage(_ message: ChatCompletionMessage) -> [String: Any] {
-        var dict: [String: Any] = [:]
-
-        if let role = message.role {
-            dict["role"] = role.rawValue
-        }
-
-        if let content = message.content {
-            switch content {
-            case .text(let text):
-                dict["content"] = text
-            case .parts(let parts):
-                dict["content"] = parts.map { part in
-                    var partDict: [String: Any] = ["type": part.type]
-                    if let text = part.text {
-                        partDict["text"] = text
-                    }
-                    return partDict
-                }
-            case .none:
-                dict["content"] = NSNull()
-            }
-        }
-
-        if let name = message.name {
-            dict["name"] = name
-        }
-
-        if let toolCalls = message.toolCalls {
-            dict["tool_calls"] = toolCalls.map { tc in
-                var tcDict: [String: Any] = [
-                    "function": [
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                    ]
-                ]
-                if let index = tc.index { tcDict["index"] = index }
-                if let id = tc.id { tcDict["id"] = id }
-                if let type = tc.type { tcDict["type"] = type }
-                return tcDict
-            }
-        }
-
-        if let toolCallId = message.toolCallId {
-            dict["tool_call_id"] = toolCallId
-        }
-
-        return dict
-    }
-
-    private func encodeTools(_ tools: [Tool]) -> [[String: Any]] {
-        tools.map { tool in
-            var funcDict: [String: Any] = ["name": tool.function.name]
-            if let description = tool.function.description {
-                funcDict["description"] = description
-            }
-            if let parameters = tool.function.parameters {
-                funcDict["parameters"] = parameters.mapValues { encodeAnyCodable($0) }
-            }
-            return [
-                "type": tool.type,
-                "function": funcDict,
-            ]
-        }
-    }
-
-    private func encodeAnyCodable(_ value: AnyCodable) -> Any {
-        switch value.value {
-        case .string(let s): s
-        case .int(let i): i
-        case .double(let d): d
-        case .bool(let b): b
-        case .null: NSNull()
-        case .array(let arr): arr.map { encodeAnyCodable($0) }
-        case .dictionary(let dict): dict.mapValues { encodeAnyCodable($0) }
-        }
-    }
-
-    private func encodeBody(_ body: [String: Any]) throws -> Data {
-        do {
-            return try JSONSerialization.data(withJSONObject: body)
-        } catch {
-            throw CopilotAPIError.streamingFailed("Failed to encode request body: \(error.localizedDescription)")
-        }
     }
 
     private func validateHTTPResponse(_ response: URLResponse, data: Data) throws {
