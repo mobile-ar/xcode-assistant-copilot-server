@@ -119,7 +119,7 @@ public struct CopilotChatRequest: Encodable, Sendable {
     }
 }
 
-public final class CopilotAPIService: CopilotAPIServiceProtocol, @unchecked Sendable {
+public struct CopilotAPIService: CopilotAPIServiceProtocol {
     private let session: URLSession
     private let logger: LoggerProtocol
     private let sseParser: SSEParser

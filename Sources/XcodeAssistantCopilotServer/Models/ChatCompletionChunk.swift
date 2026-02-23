@@ -20,7 +20,7 @@ public struct ChatCompletionChunk: Codable, Sendable {
     public init(
         id: String,
         object: String = "chat.completion.chunk",
-        created: Int = currentTimestamp(),
+        created: Int = ChatCompletionChunk.currentTimestamp(),
         model: String,
         choices: [ChunkChoice],
         systemFingerprint: String? = nil
@@ -70,11 +70,11 @@ public struct ChunkDelta: Codable, Sendable {
     }
 }
 
-public func currentTimestamp() -> Int {
-    Int(Date.now.timeIntervalSince1970)
-}
-
 extension ChatCompletionChunk {
+    public static func currentTimestamp() -> Int {
+        Int(Date.now.timeIntervalSince1970)
+    }
+
     public static func makeRoleDelta(id: String, model: String) -> ChatCompletionChunk {
         ChatCompletionChunk(
             id: id,

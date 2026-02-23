@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 public enum LogLevel: String, Sendable, CaseIterable {
     case none
@@ -28,10 +29,10 @@ public protocol LoggerProtocol: Sendable {
     func debug(_ message: String)
 }
 
-public final class Logger: LoggerProtocol, @unchecked Sendable {
+public final class Logger: LoggerProtocol, Sendable {
     public let level: LogLevel
     private let threshold: Int
-    private let lock = NSLock()
+    private let lock = Mutex<Void>(())
 
     public init(level: LogLevel = .info) {
         self.level = level
@@ -56,8 +57,8 @@ public final class Logger: LoggerProtocol, @unchecked Sendable {
 
     private func log(_ message: String, at level: LogLevel, prefix: String) {
         guard threshold >= level.priority else { return }
-        lock.lock()
-        defer { lock.unlock() }
-        print("[\(prefix)] \(message)")
+        lock.withLock { _ in
+            print("[\(prefix)] \(message)")
+        }
     }
 }

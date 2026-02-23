@@ -13,7 +13,7 @@ public struct ModelObject: Codable, Sendable {
         case ownedBy = "owned_by"
     }
 
-    public init(id: String, created: Int = currentTimestamp(), ownedBy: String = "github-copilot") {
+    public init(id: String, created: Int = ChatCompletionChunk.currentTimestamp(), ownedBy: String = "github-copilot") {
         self.id = id
         self.object = "model"
         self.created = created

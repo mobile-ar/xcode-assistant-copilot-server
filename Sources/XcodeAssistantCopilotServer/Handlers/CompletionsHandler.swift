@@ -563,7 +563,7 @@ private struct CollectedResponse: Sendable {
     let toolCalls: [ToolCall]
 }
 
-private final class ToolCallBuilder: @unchecked Sendable {
+private final class ToolCallBuilder {
     var id: String?
     var type: String?
     var index: Int?

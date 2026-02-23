@@ -32,7 +32,7 @@ public protocol DeviceFlowServiceProtocol: Sendable {
     func deleteStoredToken() throws
 }
 
-public final class GitHubDeviceFlowService: DeviceFlowServiceProtocol, @unchecked Sendable {
+public struct GitHubDeviceFlowService: DeviceFlowServiceProtocol {
     private let session: URLSession
     private let logger: LoggerProtocol
     private let tokenStoragePath: String
@@ -204,7 +204,7 @@ public final class GitHubDeviceFlowService: DeviceFlowServiceProtocol, @unchecke
     }
 
     private func storeToken(_ token: OAuthToken) throws {
-        let directory = (tokenStoragePath as NSString).deletingLastPathComponent
+        let directory = URL(fileURLWithPath: tokenStoragePath).deletingLastPathComponent().path
         let fileManager = FileManager.default
 
         if !fileManager.fileExists(atPath: directory) {

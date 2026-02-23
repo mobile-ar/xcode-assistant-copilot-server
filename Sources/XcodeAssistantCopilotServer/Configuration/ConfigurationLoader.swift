@@ -21,13 +21,11 @@ public protocol ConfigurationLoaderProtocol: Sendable {
     func load(from path: String?) throws -> ServerConfiguration
 }
 
-public final class ConfigurationLoader: ConfigurationLoaderProtocol, @unchecked Sendable {
+public struct ConfigurationLoader: ConfigurationLoaderProtocol {
     private let logger: LoggerProtocol
-    private let fileManager: FileManager
 
-    public init(logger: LoggerProtocol, fileManager: FileManager = .default) {
+    public init(logger: LoggerProtocol) {
         self.logger = logger
-        self.fileManager = fileManager
     }
 
     public func load(from path: String?) throws -> ServerConfiguration {
@@ -38,14 +36,14 @@ public final class ConfigurationLoader: ConfigurationLoaderProtocol, @unchecked 
 
         let absolutePath = resolveAbsolutePath(path)
 
-        guard fileManager.fileExists(atPath: absolutePath) else {
+        guard FileManager.default.fileExists(atPath: absolutePath) else {
             logger.warn("No config file at \(absolutePath), using defaults")
             return .shared
         }
 
         logger.info("Reading config from \(absolutePath)")
 
-        guard let data = fileManager.contents(atPath: absolutePath) else {
+        guard let data = FileManager.default.contents(atPath: absolutePath) else {
             throw ConfigurationLoaderError.fileNotFound(absolutePath)
         }
 
@@ -61,7 +59,7 @@ public final class ConfigurationLoader: ConfigurationLoaderProtocol, @unchecked 
 
         try validate(configuration)
 
-        let configDir = (absolutePath as NSString).deletingLastPathComponent
+        let configDir = URL(fileURLWithPath: absolutePath).deletingLastPathComponent().path
         let resolved = resolveServerPaths(in: configuration, configDir: configDir)
 
         logConfigurationSummary(resolved)
@@ -73,7 +71,7 @@ public final class ConfigurationLoader: ConfigurationLoaderProtocol, @unchecked 
         if path.hasPrefix("/") {
             return path
         }
-        return fileManager.currentDirectoryPath + "/" + path
+        return FileManager.default.currentDirectoryPath + "/" + path
     }
 
     private func resolveServerPaths(
