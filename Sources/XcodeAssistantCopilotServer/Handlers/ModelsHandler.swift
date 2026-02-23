@@ -1,7 +1,6 @@
 import Foundation
 import Hummingbird
 import HTTPTypes
-import NIOCore
 
 public struct ModelsHandler: Sendable {
     private let authService: AuthServiceProtocol
@@ -24,7 +23,7 @@ public struct ModelsHandler: Sendable {
             credentials = try await authService.getValidCopilotToken()
         } catch {
             logger.error("Authentication failed: \(error)")
-            return errorResponse(
+            return ErrorResponseBuilder.build(
                 status: .unauthorized,
                 message: "Authentication failed: \(error)"
             )
@@ -35,7 +34,7 @@ public struct ModelsHandler: Sendable {
             models = try await copilotAPI.listModels(credentials: credentials)
         } catch {
             logger.error("Failed to fetch models: \(error)")
-            return errorResponse(
+            return ErrorResponseBuilder.build(
                 status: .internalServerError,
                 message: "Failed to list models"
             )
@@ -59,28 +58,11 @@ public struct ModelsHandler: Sendable {
             )
         } catch {
             logger.error("Failed to encode models response: \(error)")
-            return errorResponse(
+            return ErrorResponseBuilder.build(
                 status: .internalServerError,
                 message: "Failed to encode response"
             )
         }
     }
 
-    private func errorResponse(status: HTTPResponse.Status, message: String) -> Response {
-        let body: [String: [String: String]] = [
-            "error": [
-                "message": message,
-                "type": "api_error",
-            ],
-        ]
-
-        let data = (try? JSONEncoder().encode(body)) ?? Data()
-        var headers = HTTPFields()
-        headers[.contentType] = "application/json"
-        return Response(
-            status: status,
-            headers: headers,
-            body: .init(byteBuffer: ByteBuffer(data: data))
-        )
-    }
 }

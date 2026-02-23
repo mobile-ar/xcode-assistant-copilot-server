@@ -12,7 +12,6 @@ public struct CompletionsHandler: Sendable {
     private let responsesTranslator: ResponsesAPITranslator
     private let configuration: ServerConfiguration
     private let logger: LoggerProtocol
-    private let promptFormatter: PromptFormatter
 
     private static let requestTimeoutSeconds: UInt64 = 5 * 60
     private static let maxAgentLoopIterations = 20
@@ -35,7 +34,6 @@ public struct CompletionsHandler: Sendable {
         self.responsesTranslator = ResponsesAPITranslator(logger: logger)
         self.configuration = configuration
         self.logger = logger
-        self.promptFormatter = PromptFormatter()
     }
 
     public func handle(request: Request, context: some RequestContext) async throws -> Response {
@@ -46,15 +44,15 @@ public struct CompletionsHandler: Sendable {
             completionRequest = try JSONDecoder().decode(ChatCompletionRequest.self, from: body)
         } catch {
             logger.warn("Invalid request body: \(error)")
-            return errorResponse(status: .badRequest, type: "invalid_request_error", message: "Invalid request body: \(error)")
+            return ErrorResponseBuilder.build(status: .badRequest, type: "invalid_request_error", message: "Invalid request body: \(error)")
         }
 
         guard !completionRequest.model.isEmpty else {
-            return errorResponse(status: .badRequest, type: "invalid_request_error", message: "Model is required")
+            return ErrorResponseBuilder.build(status: .badRequest, type: "invalid_request_error", message: "Model is required")
         }
 
         guard !completionRequest.messages.isEmpty else {
-            return errorResponse(status: .badRequest, type: "invalid_request_error", message: "Messages are required")
+            return ErrorResponseBuilder.build(status: .badRequest, type: "invalid_request_error", message: "Messages are required")
         }
 
         let credentials: CopilotCredentials
@@ -62,7 +60,7 @@ public struct CompletionsHandler: Sendable {
             credentials = try await authService.getValidCopilotToken()
         } catch {
             logger.error("Authentication failed: \(error)")
-            return errorResponse(status: .unauthorized, type: "api_error", message: "Authentication failed: \(error)")
+            return ErrorResponseBuilder.build(status: .unauthorized, type: "api_error", message: "Authentication failed: \(error)")
         }
 
         if mcpBridge != nil {
@@ -81,7 +79,7 @@ public struct CompletionsHandler: Sendable {
             logger.debug("Stream obtained successfully for model: \(copilotRequest.model)")
         } catch {
             logger.error("Copilot API streaming failed: \(error)")
-            return errorResponse(status: .internalServerError, type: "api_error", message: "Failed to start streaming: \(error)")
+            return ErrorResponseBuilder.build(status: .internalServerError, type: "api_error", message: "Failed to start streaming: \(error)")
         }
 
         logger.info("Streaming response (direct mode)")
@@ -186,7 +184,7 @@ public struct CompletionsHandler: Sendable {
                 collectedResponse = try await collectStreamedResponse(request: copilotRequest, credentials: credentials, model: model)
             } catch {
                 logger.error("Agent loop failed at iteration \(iteration): \(error)")
-                return errorResponse(status: .internalServerError, type: "api_error", message: "Streaming failed: \(error)")
+                return ErrorResponseBuilder.build(status: .internalServerError, type: "api_error", message: "Streaming failed: \(error)")
             }
 
             let responseToolCalls = collectedResponse.toolCalls
@@ -288,7 +286,7 @@ public struct CompletionsHandler: Sendable {
             eventStream = try await streamForModel(copilotRequest: copilotRequest, credentials: credentials)
         } catch {
             logger.error("Copilot API streaming failed for final agent response: \(error)")
-            return errorResponse(status: .internalServerError, type: "api_error", message: "Failed to start streaming: \(error)")
+            return ErrorResponseBuilder.build(status: .internalServerError, type: "api_error", message: "Failed to start streaming: \(error)")
         }
 
         logger.info("Streaming final agent response directly")
@@ -553,20 +551,6 @@ public struct CompletionsHandler: Sendable {
         headers[.connection] = "keep-alive"
         headers[HTTPField.Name("X-Accel-Buffering")!] = "no"
         return headers
-    }
-
-    private func errorResponse(status: HTTPResponse.Status, type: String, message: String) -> Response {
-        let body: [String: [String: String]] = [
-            "error": [
-                "message": "\(message)",
-                "type": type,
-            ],
-        ]
-
-        let data = (try? JSONEncoder().encode(body)) ?? Data()
-        var headers = HTTPFields()
-        headers[.contentType] = "application/json"
-        return Response(status: status, headers: headers, body: .init(byteBuffer: ByteBuffer(data: data)))
     }
 
     private func anyToAnyCodable(_ value: Any) -> AnyCodable {
