@@ -33,14 +33,14 @@ public final class ConfigurationLoader: ConfigurationLoaderProtocol, @unchecked 
     public func load(from path: String?) throws -> ServerConfiguration {
         guard let path else {
             logger.info("No config file specified, using defaults")
-            return .default
+            return .shared
         }
 
         let absolutePath = resolveAbsolutePath(path)
 
         guard fileManager.fileExists(atPath: absolutePath) else {
             logger.warn("No config file at \(absolutePath), using defaults")
-            return .default
+            return .shared
         }
 
         logger.info("Reading config from \(absolutePath)")

@@ -41,6 +41,14 @@ public struct SSEParser: Sendable {
     public init() {}
 
     public func parse(bytes: URLSession.AsyncBytes) -> AsyncThrowingStream<SSEEvent, Error> {
+        parseLineSequence(bytes.lines)
+    }
+
+    public func parseLines(_ lines: AsyncThrowingStream<String, Error>) -> AsyncThrowingStream<SSEEvent, Error> {
+        parseLineSequence(lines)
+    }
+
+    private func parseLineSequence<S: AsyncSequence & Sendable>(_ lines: S) -> AsyncThrowingStream<SSEEvent, Error> where S.Element == String {
         AsyncThrowingStream { continuation in
             let task = Task {
                 var currentEvent: String?
@@ -48,7 +56,7 @@ public struct SSEParser: Sendable {
                 var dataLines: [String] = []
 
                 do {
-                    for try await line in bytes.lines {
+                    for try await line in lines {
                         if Task.isCancelled {
                             continuation.finish()
                             return
@@ -74,8 +82,23 @@ public struct SSEParser: Sendable {
                             let value = extractFieldValue(from: line, prefix: "data:")
                             dataLines.append(value)
                         } else if line.hasPrefix("event:") {
+                            if !dataLines.isEmpty {
+                                let data = dataLines.joined(separator: "\n")
+                                let event = SSEEvent(data: data, event: currentEvent,id: currentId)
+                                continuation.yield(event)
+                                dataLines.removeAll()
+                                currentId = nil
+                            }
                             currentEvent = extractFieldValue(from: line, prefix: "event:")
                         } else if line.hasPrefix("id:") {
+                            if !dataLines.isEmpty {
+                                let data = dataLines.joined(separator: "\n")
+                                let event = SSEEvent(data: data, event: currentEvent, id: currentId)
+                                continuation.yield(event)
+                                dataLines.removeAll()
+                                currentEvent = nil
+                                currentId = nil
+                            }
                             currentId = extractFieldValue(from: line, prefix: "id:")
                         } else if line.hasPrefix(":") {
                             continue
@@ -84,11 +107,7 @@ public struct SSEParser: Sendable {
 
                     if !dataLines.isEmpty {
                         let data = dataLines.joined(separator: "\n")
-                        let event = SSEEvent(
-                            data: data,
-                            event: currentEvent,
-                            id: currentId
-                        )
+                        let event = SSEEvent(data: data, event: currentEvent, id: currentId)
                         continuation.yield(event)
                     }
 

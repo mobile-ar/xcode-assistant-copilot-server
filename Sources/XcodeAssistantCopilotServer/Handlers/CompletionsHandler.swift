@@ -7,23 +7,32 @@ public struct CompletionsHandler: Sendable {
     private let authService: AuthServiceProtocol
     private let copilotAPI: CopilotAPIServiceProtocol
     private let mcpBridge: MCPBridgeServiceProtocol?
+    private let modelEndpointResolver: ModelEndpointResolverProtocol
+    private let reasoningEffortResolver: ReasoningEffortResolverProtocol
+    private let responsesTranslator: ResponsesAPITranslator
     private let configuration: ServerConfiguration
     private let logger: LoggerProtocol
     private let promptFormatter: PromptFormatter
 
     private static let requestTimeoutSeconds: UInt64 = 5 * 60
     private static let maxAgentLoopIterations = 20
+    private static let maxReasoningEffortRetries = 3
 
     public init(
         authService: AuthServiceProtocol,
         copilotAPI: CopilotAPIServiceProtocol,
         mcpBridge: MCPBridgeServiceProtocol?,
+        modelEndpointResolver: ModelEndpointResolverProtocol,
+        reasoningEffortResolver: ReasoningEffortResolverProtocol,
         configuration: ServerConfiguration,
         logger: LoggerProtocol
     ) {
         self.authService = authService
         self.copilotAPI = copilotAPI
         self.mcpBridge = mcpBridge
+        self.modelEndpointResolver = modelEndpointResolver
+        self.reasoningEffortResolver = reasoningEffortResolver
+        self.responsesTranslator = ResponsesAPITranslator(logger: logger)
         self.configuration = configuration
         self.logger = logger
         self.promptFormatter = PromptFormatter()
@@ -37,27 +46,15 @@ public struct CompletionsHandler: Sendable {
             completionRequest = try JSONDecoder().decode(ChatCompletionRequest.self, from: body)
         } catch {
             logger.warn("Invalid request body: \(error)")
-            return errorResponse(
-                status: .badRequest,
-                type: "invalid_request_error",
-                message: "Invalid request body: \(error)"
-            )
+            return errorResponse(status: .badRequest, type: "invalid_request_error", message: "Invalid request body: \(error)")
         }
 
         guard !completionRequest.model.isEmpty else {
-            return errorResponse(
-                status: .badRequest,
-                type: "invalid_request_error",
-                message: "Model is required"
-            )
+            return errorResponse(status: .badRequest, type: "invalid_request_error", message: "Model is required")
         }
 
         guard !completionRequest.messages.isEmpty else {
-            return errorResponse(
-                status: .badRequest,
-                type: "invalid_request_error",
-                message: "Messages are required"
-            )
+            return errorResponse(status: .badRequest, type: "invalid_request_error", message: "Messages are required")
         }
 
         let credentials: CopilotCredentials
@@ -65,45 +62,26 @@ public struct CompletionsHandler: Sendable {
             credentials = try await authService.getValidCopilotToken()
         } catch {
             logger.error("Authentication failed: \(error)")
-            return errorResponse(
-                status: .unauthorized,
-                type: "api_error",
-                message: "Authentication failed: \(error)"
-            )
+            return errorResponse(status: .unauthorized, type: "api_error", message: "Authentication failed: \(error)")
         }
 
         if mcpBridge != nil {
-            return await handleAgentStreaming(
-                request: completionRequest,
-                credentials: credentials
-            )
+            return await handleAgentStreaming(request: completionRequest, credentials: credentials)
         } else {
-            return await handleDirectStreaming(
-                request: completionRequest,
-                credentials: credentials
-            )
+            return await handleDirectStreaming(request: completionRequest, credentials: credentials)
         }
     }
 
-    private func handleDirectStreaming(
-        request: ChatCompletionRequest,
-        credentials: CopilotCredentials
-    ) async -> Response {
+    private func handleDirectStreaming(request: ChatCompletionRequest, credentials: CopilotCredentials) async -> Response {
         let copilotRequest = buildCopilotRequest(from: request)
 
         let eventStream: AsyncThrowingStream<SSEEvent, Error>
         do {
-            eventStream = try await copilotAPI.streamChatCompletions(
-                request: copilotRequest,
-                credentials: credentials
-            )
+            eventStream = try await streamForModel(copilotRequest: copilotRequest, credentials: credentials)
+            logger.debug("Stream obtained successfully for model: \(copilotRequest.model)")
         } catch {
             logger.error("Copilot API streaming failed: \(error)")
-            return errorResponse(
-                status: .internalServerError,
-                type: "api_error",
-                message: "Failed to start streaming: \(error)"
-            )
+            return errorResponse(status: .internalServerError, type: "api_error", message: "Failed to start streaming: \(error)")
         }
 
         logger.info("Streaming response (direct mode)")
@@ -118,29 +96,37 @@ public struct CompletionsHandler: Sendable {
                         }
 
                         group.addTask { [logger] in
+                            var forwardedEventCount = 0
                             do {
                                 for try await event in eventStream {
-                                    if Task.isCancelled { break }
+                                    if Task.isCancelled {
+                                        logger.debug("Direct stream: task cancelled after \(forwardedEventCount) forwarded events")
+                                        break
+                                    }
 
                                     if event.isDone {
+                                        logger.debug("Direct stream: received [DONE] after \(forwardedEventCount) forwarded events")
                                         let doneBuffer = ByteBuffer(string: "data: [DONE]\n\n")
                                         continuation.yield(doneBuffer)
                                         break
                                     }
 
+                                    forwardedEventCount += 1
+                                    if forwardedEventCount <= 3 || forwardedEventCount % 50 == 0 {
+                                        logger.debug("Direct stream: forwarding event #\(forwardedEventCount), data length=\(event.data.count), preview=\(event.data.prefix(150))")
+                                    }
                                     let sseData = "data: \(event.data)\n\n"
                                     let buffer = ByteBuffer(string: sseData)
                                     continuation.yield(buffer)
                                 }
                             } catch {
-                                logger.error("Stream error: \(error)")
+                                logger.error("Direct stream error after \(forwardedEventCount) events: \(error)")
                             }
+                            logger.debug("Direct stream: finished with \(forwardedEventCount) total forwarded events")
                             continuation.finish()
                         }
 
-                        if let firstResult = try await group.next() {
-                            _ = firstResult
-                        }
+                        try await group.next()
                         group.cancelAll()
                     }
                 } catch {
@@ -152,17 +138,10 @@ public struct CompletionsHandler: Sendable {
             }
         }
 
-        return Response(
-            status: .ok,
-            headers: sseHeaders(),
-            body: .init(asyncSequence: responseStream)
-        )
+        return Response(status: .ok, headers: sseHeaders(), body: .init(asyncSequence: responseStream))
     }
 
-    private func handleAgentStreaming(
-        request: ChatCompletionRequest,
-        credentials: CopilotCredentials
-    ) async -> Response {
+    private func handleAgentStreaming(request: ChatCompletionRequest, credentials: CopilotCredentials) async -> Response {
         let completionId = ChatCompletionChunk.makeCompletionId()
         var messages = request.messages
         let model = request.model
@@ -204,18 +183,10 @@ public struct CompletionsHandler: Sendable {
 
             let collectedResponse: CollectedResponse
             do {
-                collectedResponse = try await collectStreamedResponse(
-                    request: copilotRequest,
-                    credentials: credentials,
-                    model: model
-                )
+                collectedResponse = try await collectStreamedResponse(request: copilotRequest, credentials: credentials, model: model)
             } catch {
                 logger.error("Agent loop failed at iteration \(iteration): \(error)")
-                return errorResponse(
-                    status: .internalServerError,
-                    type: "api_error",
-                    message: "Streaming failed: \(error)"
-                )
+                return errorResponse(status: .internalServerError, type: "api_error", message: "Streaming failed: \(error)")
             }
 
             let responseToolCalls = collectedResponse.toolCalls
@@ -314,17 +285,10 @@ public struct CompletionsHandler: Sendable {
 
         let eventStream: AsyncThrowingStream<SSEEvent, Error>
         do {
-            eventStream = try await copilotAPI.streamChatCompletions(
-                request: copilotRequest,
-                credentials: credentials
-            )
+            eventStream = try await streamForModel(copilotRequest: copilotRequest, credentials: credentials)
         } catch {
             logger.error("Copilot API streaming failed for final agent response: \(error)")
-            return errorResponse(
-                status: .internalServerError,
-                type: "api_error",
-                message: "Failed to start streaming: \(error)"
-            )
+            return errorResponse(status: .internalServerError, type: "api_error", message: "Failed to start streaming: \(error)")
         }
 
         logger.info("Streaming final agent response directly")
@@ -359,9 +323,7 @@ public struct CompletionsHandler: Sendable {
                             continuation.finish()
                         }
 
-                        if let firstResult = try await group.next() {
-                            _ = firstResult
-                        }
+                        try await group.next()
                         group.cancelAll()
                     }
                 } catch {
@@ -373,22 +335,11 @@ public struct CompletionsHandler: Sendable {
             }
         }
 
-        return Response(
-            status: .ok,
-            headers: sseHeaders(),
-            body: .init(asyncSequence: responseStream)
-        )
+        return Response(status: .ok, headers: sseHeaders(), body: .init(asyncSequence: responseStream))
     }
 
-    private func collectStreamedResponse(
-        request: CopilotChatRequest,
-        credentials: CopilotCredentials,
-        model: String
-    ) async throws -> CollectedResponse {
-        let eventStream = try await copilotAPI.streamChatCompletions(
-            request: request,
-            credentials: credentials
-        )
+    private func collectStreamedResponse(request: CopilotChatRequest, credentials: CopilotCredentials, model: String) async throws -> CollectedResponse {
+        let eventStream = try await streamForModel(copilotRequest: request, credentials: credentials)
 
         var content = ""
         var toolCalls: [ToolCall] = []
@@ -521,11 +472,63 @@ public struct CompletionsHandler: Sendable {
             continuation.finish()
         }
 
-        return Response(
-            status: .ok,
-            headers: sseHeaders(),
-            body: .init(asyncSequence: responseStream)
-        )
+        return Response(status: .ok, headers: sseHeaders(), body: .init(asyncSequence: responseStream))
+    }
+
+    private func streamForModel(copilotRequest: CopilotChatRequest, credentials: CopilotCredentials) async throws -> AsyncThrowingStream<SSEEvent, Error> {
+        var currentRequest = await resolveReasoningEffort(for: copilotRequest)
+
+        for attempt in 0..<Self.maxReasoningEffortRetries {
+            do {
+                return try await executeStream(copilotRequest: currentRequest, credentials: credentials)
+            } catch let error as CopilotAPIError {
+                guard case .requestFailed(statusCode: 400, let body) = error,
+                      let currentEffort = currentRequest.reasoningEffort,
+                      body.contains(currentEffort.rawValue) else {
+                    throw error
+                }
+
+                guard let lowerEffort = currentEffort.nextLower else {
+                    logger.warn("Reasoning effort '\(currentEffort.rawValue)' rejected and no lower level available, retrying without reasoning effort")
+                    currentRequest = currentRequest.withReasoningEffort(nil)
+                    continue
+                }
+
+                logger.info("Reasoning effort '\(currentEffort.rawValue)' not supported by model '\(currentRequest.model)', retrying with '\(lowerEffort.rawValue)' (attempt \(attempt + 1))")
+                await reasoningEffortResolver.recordMaxEffort(lowerEffort, for: currentRequest.model)
+                currentRequest = currentRequest.withReasoningEffort(lowerEffort)
+            }
+        }
+
+        return try await executeStream(copilotRequest: currentRequest, credentials: credentials)
+    }
+
+    private func resolveReasoningEffort(for request: CopilotChatRequest) async -> CopilotChatRequest {
+        guard let configured = request.reasoningEffort else { return request }
+        let resolved = await reasoningEffortResolver.resolve(configured: configured, for: request.model)
+        if resolved != configured {
+            logger.info("Clamped reasoning effort from '\(configured.rawValue)' to '\(resolved.rawValue)' for model '\(request.model)'")
+        }
+        return request.withReasoningEffort(resolved)
+    }
+
+    private func executeStream(copilotRequest: CopilotChatRequest, credentials: CopilotCredentials) async throws -> AsyncThrowingStream<SSEEvent, Error> {
+        let endpoint = await modelEndpointResolver.endpoint(for: copilotRequest.model, credentials: credentials)
+
+        switch endpoint {
+        case .chatCompletions:
+            return try await copilotAPI.streamChatCompletions(request: copilotRequest, credentials: credentials)
+
+        case .responses:
+            logger.info("Using Responses API for model: \(copilotRequest.model)")
+            let responsesRequest = responsesTranslator.translateRequest(from: copilotRequest)
+            logger.debug("Sending Responses API request to endpoint: \(credentials.apiEndpoint)/responses")
+            let rawStream = try await copilotAPI.streamResponses(request: responsesRequest, credentials: credentials)
+            logger.debug("Responses API raw stream obtained, adapting to chat completions format")
+            let completionId = ChatCompletionChunk.makeCompletionId()
+            logger.debug("Generated completionId=\(completionId) for adapted stream")
+            return responsesTranslator.adaptStream(events: rawStream, completionId: completionId, model: copilotRequest.model)
+        }
     }
 
     private func buildCopilotRequest(from request: ChatCompletionRequest) -> CopilotChatRequest {
@@ -552,11 +555,7 @@ public struct CompletionsHandler: Sendable {
         return headers
     }
 
-    private func errorResponse(
-        status: HTTPResponse.Status,
-        type: String,
-        message: String
-    ) -> Response {
+    private func errorResponse(status: HTTPResponse.Status, type: String, message: String) -> Response {
         let body: [String: [String: String]] = [
             "error": [
                 "message": "\(message)",
@@ -567,11 +566,7 @@ public struct CompletionsHandler: Sendable {
         let data = (try? JSONEncoder().encode(body)) ?? Data()
         var headers = HTTPFields()
         headers[.contentType] = "application/json"
-        return Response(
-            status: status,
-            headers: headers,
-            body: .init(byteBuffer: ByteBuffer(data: data))
-        )
+        return Response(status: status, headers: headers, body: .init(byteBuffer: ByteBuffer(data: data)))
     }
 
     private func anyToAnyCodable(_ value: Any) -> AnyCodable {

@@ -62,45 +62,17 @@ import Testing
     logger.debug("should be suppressed")
 }
 
-final class SpyLogger: LoggerProtocol, @unchecked Sendable {
-    let level: LogLevel
-    private(set) var errorMessages: [String] = []
-    private(set) var warnMessages: [String] = []
-    private(set) var infoMessages: [String] = []
-    private(set) var debugMessages: [String] = []
-
-    init(level: LogLevel = .all) {
-        self.level = level
-    }
-
-    func error(_ message: String) {
-        errorMessages.append(message)
-    }
-
-    func warn(_ message: String) {
-        warnMessages.append(message)
-    }
-
-    func info(_ message: String) {
-        infoMessages.append(message)
-    }
-
-    func debug(_ message: String) {
-        debugMessages.append(message)
-    }
-}
-
 @Test func spyLoggerCapturesMessages() {
-    let spy = SpyLogger()
-    spy.error("e1")
-    spy.warn("w1")
-    spy.info("i1")
-    spy.debug("d1")
+    let logger = MockLogger()
+    logger.error("e1")
+    logger.warn("w1")
+    logger.info("i1")
+    logger.debug("d1")
 
-    #expect(spy.errorMessages == ["e1"])
-    #expect(spy.warnMessages == ["w1"])
-    #expect(spy.infoMessages == ["i1"])
-    #expect(spy.debugMessages == ["d1"])
+    #expect(logger.errorMessages == ["e1"])
+    #expect(logger.warnMessages == ["w1"])
+    #expect(logger.infoMessages == ["i1"])
+    #expect(logger.debugMessages == ["d1"])
 }
 
 @Test func logLevelPriorityOrdering() {

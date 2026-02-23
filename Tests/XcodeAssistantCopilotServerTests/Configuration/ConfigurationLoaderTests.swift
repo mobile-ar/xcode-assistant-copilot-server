@@ -3,7 +3,7 @@ import Foundation
 @testable import XcodeAssistantCopilotServer
 
 @Test func loadReturnsDefaultConfigWhenPathIsNil() throws {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
     let config = try loader.load(from: nil)
     #expect(config.mcpServers.isEmpty)
@@ -15,7 +15,7 @@ import Foundation
 }
 
 @Test func loadReturnsDefaultConfigWhenFileDoesNotExist() throws {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
     let config = try loader.load(from: "/nonexistent/path/config.json")
     #expect(config.mcpServers.isEmpty)
@@ -25,7 +25,7 @@ import Foundation
 }
 
 @Test func loadParsesValidJSONConfig() throws {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let json = """
@@ -53,7 +53,7 @@ import Foundation
 }
 
 @Test func loadParsesConfigWithMCPServer() throws {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let json = """
@@ -88,7 +88,7 @@ import Foundation
 }
 
 @Test func loadParsesConfigWithPermissionKinds() throws {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let json = """
@@ -115,7 +115,7 @@ import Foundation
 }
 
 @Test func loadParsesConfigWithAllPermissionsDenied() throws {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let json = """
@@ -140,7 +140,7 @@ import Foundation
 }
 
 @Test func loadThrowsOnInvalidJSON() {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let tempDir = FileManager.default.temporaryDirectory
@@ -154,7 +154,7 @@ import Foundation
 }
 
 @Test func loadThrowsOnBodyLimitTooLow() {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let json = """
@@ -178,7 +178,7 @@ import Foundation
 }
 
 @Test func loadThrowsOnBodyLimitTooHigh() {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let json = """
@@ -202,7 +202,7 @@ import Foundation
 }
 
 @Test func loadThrowsOnWildcardMixedWithOtherCliTools() {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let json = """
@@ -226,7 +226,7 @@ import Foundation
 }
 
 @Test func loadAcceptsWildcardAloneInCliTools() throws {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let json = """
@@ -250,7 +250,7 @@ import Foundation
 }
 
 @Test func loadThrowsOnLocalMCPServerMissingCommand() {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let json = """
@@ -279,7 +279,7 @@ import Foundation
 }
 
 @Test func loadThrowsOnLocalMCPServerWithEmptyCommand() {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let json = """
@@ -309,7 +309,7 @@ import Foundation
 }
 
 @Test func loadThrowsOnHTTPMCPServerMissingURL() {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let json = """
@@ -337,7 +337,7 @@ import Foundation
 }
 
 @Test func loadResolvesRelativePathsInMCPServerArgs() throws {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let json = """
@@ -371,7 +371,7 @@ import Foundation
 }
 
 @Test func loadDoesNotResolveAbsolutePathsInMCPServerArgs() throws {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let json = """
@@ -402,7 +402,7 @@ import Foundation
 }
 
 @Test func loadParsesAllReasoningEffortValues() throws {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let efforts: [(String, ReasoningEffort)] = [
@@ -435,7 +435,7 @@ import Foundation
 }
 
 @Test func loadParsesConfigWithoutReasoningEffort() throws {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let json = """
@@ -458,7 +458,7 @@ import Foundation
 }
 
 @Test func loadLogsConfigSummary() throws {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let json = """
@@ -491,7 +491,7 @@ import Foundation
 }
 
 @Test func loadLogsAllCliToolsAllowedSummary() throws {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let json = """
@@ -543,7 +543,7 @@ import Foundation
 }
 
 @Test func loadParsesConfigWithMultipleMCPServers() throws {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let json = """
@@ -583,7 +583,7 @@ import Foundation
 }
 
 @Test func loadParsesConfigWithSSEMCPServer() throws {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let json = """
@@ -615,7 +615,7 @@ import Foundation
 }
 
 @Test func defaultConfigurationHasExpectedValues() {
-    let config = ServerConfiguration.default
+    let config = ServerConfiguration.shared
     #expect(config.mcpServers.isEmpty)
     #expect(config.allowedCliTools.isEmpty)
     #expect(config.bodyLimitMiB == 4)
@@ -732,7 +732,7 @@ import Foundation
 }
 
 @Test func loadHandlesRelativePath() throws {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     // A relative path that doesn't exist should return defaults
@@ -742,7 +742,7 @@ import Foundation
 }
 
 @Test func loadParsesConfigWithEnvironmentInMCPServer() throws {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     let json = """
@@ -782,7 +782,7 @@ import Foundation
 }
 
 @Test func loadParsesBodyLimitBoundaryValues() throws {
-    let logger = SpyLogger()
+    let logger = MockLogger()
     let loader = ConfigurationLoader(logger: logger)
 
     // bodyLimitMiB == 1 is valid

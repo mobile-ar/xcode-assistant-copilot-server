@@ -1,10 +1,32 @@
 import Foundation
 
-public enum ReasoningEffort: String, Codable, Sendable {
+public enum ReasoningEffort: String, Codable, Sendable, Comparable {
     case low
     case medium
     case high
     case xhigh
+
+    private var ordinal: Int {
+        switch self {
+        case .low: 0
+        case .medium: 1
+        case .high: 2
+        case .xhigh: 3
+        }
+    }
+
+    public static func < (lhs: ReasoningEffort, rhs: ReasoningEffort) -> Bool {
+        lhs.ordinal < rhs.ordinal
+    }
+
+    var nextLower: ReasoningEffort? {
+        switch self {
+        case .low: nil
+        case .medium: .low
+        case .high: .medium
+        case .xhigh: .high
+        }
+    }
 }
 
 public enum PermissionKind: String, Codable, Sendable {
@@ -142,5 +164,5 @@ public struct ServerConfiguration: Codable, Sendable {
         mcpServers.values.contains { $0.isToolAllowed(toolName) }
     }
 
-    public static let `default` = ServerConfiguration()
+    public static let shared = ServerConfiguration()
 }

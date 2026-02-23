@@ -32,6 +32,10 @@ public protocol CopilotAPIServiceProtocol: Sendable {
         request: CopilotChatRequest,
         credentials: CopilotCredentials
     ) async throws -> AsyncThrowingStream<SSEEvent, Error>
+    func streamResponses(
+        request: ResponsesAPIRequest,
+        credentials: CopilotCredentials
+    ) async throws -> AsyncThrowingStream<SSEEvent, Error>
 }
 
 public struct CopilotChatRequest: Encodable, Sendable {
@@ -83,6 +87,21 @@ public struct CopilotChatRequest: Encodable, Sendable {
         self.stream = stream
     }
 
+    public func withReasoningEffort(_ effort: ReasoningEffort?) -> CopilotChatRequest {
+        CopilotChatRequest(
+            model: model,
+            messages: messages,
+            temperature: temperature,
+            topP: topP,
+            maxTokens: maxTokens,
+            stop: stop,
+            tools: tools,
+            toolChoice: toolChoice,
+            reasoningEffort: effort,
+            stream: stream
+        )
+    }
+
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(model, forKey: .model)
@@ -107,6 +126,7 @@ public final class CopilotAPIService: CopilotAPIServiceProtocol, @unchecked Send
 
     private static let modelsPath = "/models"
     private static let chatCompletionsPath = "/chat/completions"
+    private static let responsesPath = "/responses"
 
     public init(logger: LoggerProtocol, session: URLSession = .shared) {
         self.logger = logger
@@ -181,6 +201,64 @@ public final class CopilotAPIService: CopilotAPIServiceProtocol, @unchecked Send
             throw CopilotAPIError.requestFailed(statusCode: httpResponse.statusCode, body: body)
         }
 
+        return sseParser.parse(bytes: bytes)
+    }
+
+    public func streamResponses(
+        request: ResponsesAPIRequest,
+        credentials: CopilotCredentials
+    ) async throws -> AsyncThrowingStream<SSEEvent, Error> {
+        let url = try buildURL(baseURL: credentials.apiEndpoint, path: Self.responsesPath)
+        logger.info("Responses API URL: \(url.absoluteString)")
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.timeoutInterval = 300
+        applyHeaders(to: &urlRequest, token: credentials.token)
+        urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        urlRequest.setValue("conversation-panel", forHTTPHeaderField: "Openai-Intent")
+
+        do {
+            let body = try JSONEncoder().encode(request)
+            urlRequest.httpBody = body
+            logger.debug("Responses API request body size: \(body.count) bytes")
+            if let bodyString = String(data: body, encoding: .utf8) {
+                logger.debug("Responses API request body: \(bodyString)")
+            }
+        } catch {
+            logger.error("Failed to encode responses request body: \(error)")
+            throw CopilotAPIError.streamingFailed("Failed to encode responses request body: \(error.localizedDescription)")
+        }
+
+        logger.info("Sending responses API request for model: \(request.model) to \(credentials.apiEndpoint)")
+
+        let (bytes, response) = try await session.bytes(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            logger.error("Responses API returned invalid (non-HTTP) response type")
+            throw CopilotAPIError.networkError("Invalid response type")
+        }
+
+        logger.info("Responses API HTTP status: \(httpResponse.statusCode)")
+        let responseHeaders = httpResponse.allHeaderFields.map { "\($0.key): \($0.value)" }.joined(separator: ", ")
+        logger.debug("Responses API response headers: \(responseHeaders)")
+
+        if httpResponse.statusCode == 401 {
+            logger.error("Responses API returned 401 Unauthorized")
+            throw CopilotAPIError.unauthorized
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            var collectedData = Data()
+            for try await byte in bytes {
+                collectedData.append(byte)
+            }
+            let body = String(data: collectedData, encoding: .utf8) ?? ""
+            logger.error("Responses API error response (HTTP \(httpResponse.statusCode)): \(body)")
+            throw CopilotAPIError.requestFailed(statusCode: httpResponse.statusCode, body: body)
+        }
+
+        logger.info("Responses API stream connected successfully, beginning SSE parsing")
         return sseParser.parse(bytes: bytes)
     }
 

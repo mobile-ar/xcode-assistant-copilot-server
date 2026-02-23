@@ -302,3 +302,304 @@ import Testing
     let mixed = parser.parseLine("Data: hello")
     #expect(mixed == nil)
 }
+
+@Test func sseParserFlushesEventWhenNewEventFieldArrivesWithoutBlankLine() async throws {
+    let parser = SSEParser()
+
+    let lines = [
+        "event: response.created",
+        "data: {\"type\":\"response.created\",\"sequence_number\":0}",
+        "event: response.completed",
+        "data: {\"type\":\"response.completed\",\"sequence_number\":106}",
+        ""
+    ]
+
+    let stream = parser.parseLines(AsyncThrowingStream { continuation in
+        for line in lines { continuation.yield(line) }
+        continuation.finish()
+    })
+
+    var collected: [SSEEvent] = []
+    for try await event in stream {
+        collected.append(event)
+    }
+
+    #expect(collected.count == 2)
+    #expect(collected[0].event == "response.created")
+    #expect(collected[0].data == "{\"type\":\"response.created\",\"sequence_number\":0}")
+    #expect(collected[1].event == "response.completed")
+    #expect(collected[1].data == "{\"type\":\"response.completed\",\"sequence_number\":106}")
+}
+
+@Test func sseParserFlushesMultipleEventsWithoutBlankLines() async throws {
+    let parser = SSEParser()
+
+    let lines = [
+        "event: response.created",
+        "data: {\"type\":\"response.created\"}",
+        "event: response.in_progress",
+        "data: {\"type\":\"response.in_progress\"}",
+        "event: response.output_text.delta",
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}",
+        "event: response.completed",
+        "data: {\"type\":\"response.completed\"}",
+        ""
+    ]
+
+    let stream = parser.parseLines(AsyncThrowingStream { continuation in
+        for line in lines { continuation.yield(line) }
+        continuation.finish()
+    })
+
+    var collected: [SSEEvent] = []
+    for try await event in stream {
+        collected.append(event)
+    }
+
+    #expect(collected.count == 4)
+    #expect(collected[0].event == "response.created")
+    #expect(collected[1].event == "response.in_progress")
+    #expect(collected[2].event == "response.output_text.delta")
+    #expect(collected[2].data.contains("Hello"))
+    #expect(collected[3].event == "response.completed")
+}
+
+@Test func sseParserHandlesMixOfBlankLineAndNoBlankLineSeparators() async throws {
+    let parser = SSEParser()
+
+    let lines = [
+        "event: response.created",
+        "data: {\"type\":\"response.created\"}",
+        "",
+        "event: response.output_text.delta",
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hi\"}",
+        "event: response.completed",
+        "data: {\"type\":\"response.completed\"}",
+        ""
+    ]
+
+    let stream = parser.parseLines(AsyncThrowingStream { continuation in
+        for line in lines { continuation.yield(line) }
+        continuation.finish()
+    })
+
+    var collected: [SSEEvent] = []
+    for try await event in stream {
+        collected.append(event)
+    }
+
+    #expect(collected.count == 3)
+    #expect(collected[0].event == "response.created")
+    #expect(collected[1].event == "response.output_text.delta")
+    #expect(collected[1].data.contains("Hi"))
+    #expect(collected[2].event == "response.completed")
+}
+
+@Test func sseParserPreservesIdAcrossFlush() async throws {
+    let parser = SSEParser()
+
+    let lines = [
+        "id: 1",
+        "event: first",
+        "data: {\"n\":1}",
+        "id: 2",
+        "event: second",
+        "data: {\"n\":2}",
+        ""
+    ]
+
+    let stream = parser.parseLines(AsyncThrowingStream { continuation in
+        for line in lines { continuation.yield(line) }
+        continuation.finish()
+    })
+
+    var collected: [SSEEvent] = []
+    for try await event in stream {
+        collected.append(event)
+    }
+
+    #expect(collected.count == 2)
+    #expect(collected[0].event == "first")
+    #expect(collected[0].id == "1")
+    #expect(collected[0].data == "{\"n\":1}")
+    #expect(collected[1].event == "second")
+    #expect(collected[1].id == "2")
+    #expect(collected[1].data == "{\"n\":2}")
+}
+
+@Test func sseParserFlushDoesNotOccurWhenNoDataAccumulated() async throws {
+    let parser = SSEParser()
+
+    let lines = [
+        "event: first",
+        "event: second",
+        "data: {\"only\":\"event\"}",
+        ""
+    ]
+
+    let stream = parser.parseLines(AsyncThrowingStream { continuation in
+        for line in lines { continuation.yield(line) }
+        continuation.finish()
+    })
+
+    var collected: [SSEEvent] = []
+    for try await event in stream {
+        collected.append(event)
+    }
+
+    #expect(collected.count == 1)
+    #expect(collected[0].event == "second")
+    #expect(collected[0].data == "{\"only\":\"event\"}")
+}
+
+@Test func sseParserFlushWithMultipleDataLinesPerEvent() async throws {
+    let parser = SSEParser()
+
+    let lines = [
+        "event: first",
+        "data: line1",
+        "data: line2",
+        "event: second",
+        "data: single",
+        ""
+    ]
+
+    let stream = parser.parseLines(AsyncThrowingStream { continuation in
+        for line in lines { continuation.yield(line) }
+        continuation.finish()
+    })
+
+    var collected: [SSEEvent] = []
+    for try await event in stream {
+        collected.append(event)
+    }
+
+    #expect(collected.count == 2)
+    #expect(collected[0].event == "first")
+    #expect(collected[0].data == "line1\nline2")
+    #expect(collected[1].event == "second")
+    #expect(collected[1].data == "single")
+}
+
+@Test func sseParserNoBlankLineSeparatorWithLargePayloads() async throws {
+    let parser = SSEParser()
+
+    let createdPayload = "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_001\",\"status\":\"in_progress\",\"background\":false,\"completed_at\":null}}"
+    let completedPayload = "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_001\",\"status\":\"completed\",\"background\":false,\"completed_at\":1234567890}}"
+
+    let lines = [
+        "event: response.created",
+        "data: \(createdPayload)",
+        "event: response.completed",
+        "data: \(completedPayload)",
+        ""
+    ]
+
+    let stream = parser.parseLines(AsyncThrowingStream { continuation in
+        for line in lines { continuation.yield(line) }
+        continuation.finish()
+    })
+
+    var collected: [SSEEvent] = []
+    for try await event in stream {
+        collected.append(event)
+    }
+
+    #expect(collected.count == 2)
+    #expect(collected[0].event == "response.created")
+    #expect(collected[0].data == createdPayload)
+    #expect(collected[1].event == "response.completed")
+    #expect(collected[1].data == completedPayload)
+
+    let createdJSON = try JSONSerialization.jsonObject(with: Data(collected[0].data.utf8)) as? [String: Any]
+    #expect(createdJSON?["type"] as? String == "response.created")
+
+    let completedJSON = try JSONSerialization.jsonObject(with: Data(collected[1].data.utf8)) as? [String: Any]
+    #expect(completedJSON?["type"] as? String == "response.completed")
+}
+
+@Test func sseParserNormalBlankLineSeparatedEventsStillWork() async throws {
+    let parser = SSEParser()
+
+    let lines = [
+        "event: response.created",
+        "data: {\"type\":\"response.created\"}",
+        "",
+        "event: response.output_text.delta",
+        "data: {\"delta\":\"Hello \"}",
+        "",
+        "event: response.output_text.delta",
+        "data: {\"delta\":\"world\"}",
+        "",
+        "event: response.completed",
+        "data: {\"type\":\"response.completed\"}",
+        ""
+    ]
+
+    let stream = parser.parseLines(AsyncThrowingStream { continuation in
+        for line in lines { continuation.yield(line) }
+        continuation.finish()
+    })
+
+    var collected: [SSEEvent] = []
+    for try await event in stream {
+        collected.append(event)
+    }
+
+    #expect(collected.count == 4)
+    #expect(collected[0].event == "response.created")
+    #expect(collected[1].event == "response.output_text.delta")
+    #expect(collected[2].event == "response.output_text.delta")
+    #expect(collected[3].event == "response.completed")
+}
+
+@Test func sseParserFlushesOnEndOfStreamWithoutTrailingBlankLine() async throws {
+    let parser = SSEParser()
+
+    let lines = [
+        "event: response.created",
+        "data: {\"type\":\"response.created\"}",
+        "event: response.completed",
+        "data: {\"type\":\"response.completed\"}"
+    ]
+
+    let stream = parser.parseLines(AsyncThrowingStream { continuation in
+        for line in lines { continuation.yield(line) }
+        continuation.finish()
+    })
+
+    var collected: [SSEEvent] = []
+    for try await event in stream {
+        collected.append(event)
+    }
+
+    #expect(collected.count == 2)
+    #expect(collected[0].event == "response.created")
+    #expect(collected[0].data == "{\"type\":\"response.created\"}")
+    #expect(collected[1].event == "response.completed")
+    #expect(collected[1].data == "{\"type\":\"response.completed\"}")
+}
+
+@Test func sseParserDataOnlyEventsWithoutBlankLineSeparatorsNoFlush() async throws {
+    let parser = SSEParser()
+
+    let lines = [
+        "data: {\"type\":\"response.created\"}",
+        "data: {\"type\":\"response.completed\"}",
+        ""
+    ]
+
+    let stream = parser.parseLines(AsyncThrowingStream { continuation in
+        for line in lines { continuation.yield(line) }
+        continuation.finish()
+    })
+
+    var collected: [SSEEvent] = []
+    for try await event in stream {
+        collected.append(event)
+    }
+
+    #expect(collected.count == 1)
+    #expect(collected[0].data == "{\"type\":\"response.created\"}\n{\"type\":\"response.completed\"}")
+    #expect(collected[0].event == nil)
+}

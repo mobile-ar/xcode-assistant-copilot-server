@@ -466,3 +466,69 @@ import Testing
     let roundTripped = try JSONSerialization.jsonObject(with: data)
     #expect(roundTripped is [String: Any])
 }
+
+@Test func withReasoningEffortReturnsNewRequestWithUpdatedEffort() throws {
+    let original = CopilotChatRequest(
+        model: "gpt-5.1-codex",
+        messages: [
+            ChatCompletionMessage(role: .user, content: .text("Hello"))
+        ],
+        temperature: 0.7,
+        topP: 0.9,
+        maxTokens: 1024,
+        reasoningEffort: .xhigh,
+        stream: true
+    )
+
+    let updated = original.withReasoningEffort(.high)
+
+    #expect(updated.reasoningEffort == .high)
+    #expect(updated.model == original.model)
+    #expect(updated.temperature == original.temperature)
+    #expect(updated.topP == original.topP)
+    #expect(updated.maxTokens == original.maxTokens)
+    #expect(updated.stream == original.stream)
+    #expect(updated.messages.count == original.messages.count)
+}
+
+@Test func withReasoningEffortSetsToNil() throws {
+    let original = CopilotChatRequest(
+        model: "gpt-5.1-codex",
+        messages: [
+            ChatCompletionMessage(role: .user, content: .text("Hello"))
+        ],
+        reasoningEffort: .xhigh
+    )
+
+    let updated = original.withReasoningEffort(nil)
+
+    #expect(updated.reasoningEffort == nil)
+    #expect(updated.model == original.model)
+
+    let data = try JSONEncoder().encode(updated)
+    let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+    #expect(json["reasoning_effort"] == nil)
+}
+
+@Test func withReasoningEffortPreservesTools() throws {
+    let original = CopilotChatRequest(
+        model: "gpt-4o",
+        messages: [
+            ChatCompletionMessage(role: .user, content: .text("Hi"))
+        ],
+        tools: [
+            Tool(
+                type: "function",
+                function: ToolFunction(name: "get_weather", description: "Get weather")
+            )
+        ],
+        toolChoice: AnyCodable(.string("auto")),
+        reasoningEffort: .xhigh
+    )
+
+    let updated = original.withReasoningEffort(.medium)
+
+    #expect(updated.reasoningEffort == .medium)
+    #expect(updated.tools?.count == 1)
+    #expect(updated.tools?.first?.function.name == "get_weather")
+}

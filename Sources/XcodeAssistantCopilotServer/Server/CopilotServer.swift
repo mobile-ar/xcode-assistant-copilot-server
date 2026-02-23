@@ -34,10 +34,15 @@ public struct CopilotServer: Sendable {
             logger: logger
         )
 
+        let modelEndpointResolver = ModelEndpointResolver(copilotAPI: copilotAPI, logger: logger)
+        let reasoningEffortResolver = ReasoningEffortResolver()
+
         let completionsHandler = CompletionsHandler(
             authService: authService,
             copilotAPI: copilotAPI,
             mcpBridge: mcpBridge,
+            modelEndpointResolver: modelEndpointResolver,
+            reasoningEffortResolver: reasoningEffortResolver,
             configuration: configuration,
             logger: logger
         )
