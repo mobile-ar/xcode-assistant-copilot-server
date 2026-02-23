@@ -394,7 +394,7 @@ public struct CompletionsHandler: Sendable {
         let arguments: [String: AnyCodable]
         if let data = toolCall.function.arguments.data(using: .utf8),
            let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            arguments = parsed.compactMapValues { anyToAnyCodable($0) }
+            arguments = parsed.compactMapValues { AnyCodable(fromAny: $0) }
         } else {
             arguments = [:]
         }
@@ -551,25 +551,6 @@ public struct CompletionsHandler: Sendable {
         headers[.connection] = "keep-alive"
         headers[HTTPField.Name("X-Accel-Buffering")!] = "no"
         return headers
-    }
-
-    private func anyToAnyCodable(_ value: Any) -> AnyCodable {
-        switch value {
-        case let string as String:
-            AnyCodable(.string(string))
-        case let int as Int:
-            AnyCodable(.int(int))
-        case let double as Double:
-            AnyCodable(.double(double))
-        case let bool as Bool:
-            AnyCodable(.bool(bool))
-        case let array as [Any]:
-            AnyCodable(.array(array.map { anyToAnyCodable($0) }))
-        case let dict as [String: Any]:
-            AnyCodable(.dictionary(dict.compactMapValues { anyToAnyCodable($0) }))
-        default:
-            AnyCodable(.null)
-        }
     }
 }
 
