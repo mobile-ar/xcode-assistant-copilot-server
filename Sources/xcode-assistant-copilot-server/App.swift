@@ -41,6 +41,10 @@ struct App: AsyncParsableCommand {
             throw ExitCode.failure
         }
 
+        let pidFile = MCPBridgePIDFile()
+        let orphanCleaner = OrphanedProcessCleaner(pidFile: pidFile, logger: logger)
+        orphanCleaner.cleanupIfNeeded()
+
         let processRunner = ProcessRunner()
         let urlSession = URLSessionProvider.configuredSession()
         let deviceFlowService = GitHubDeviceFlowService(logger: logger, session: urlSession)
@@ -76,7 +80,11 @@ struct App: AsyncParsableCommand {
             if let (_, serverConfig) = configuration.mcpServers.first(where: {
                 $0.value.type == .local || $0.value.type == .stdio
             }) {
-                let bridge = MCPBridgeService(serverConfig: serverConfig, logger: logger)
+                let bridge = MCPBridgeService(
+                    serverConfig: serverConfig,
+                    logger: logger,
+                    pidFile: pidFile
+                )
                 do {
                     logger.info("Starting MCP bridge...")
                     try await bridge.start()
@@ -86,6 +94,14 @@ struct App: AsyncParsableCommand {
                     logger.warn("MCP bridge failed to start: \(error)")
                     logger.warn("Continuing without MCP support")
                 }
+            }
+        }
+
+        let signalHandler = SignalHandler(logger: logger)
+        if let bridge = mcpBridge as? MCPBridgeService {
+            signalHandler.monitorSignals { signal in
+                logger.info("Stopping MCP bridge due to signal \(signal)...")
+                try? await bridge.stop()
             }
         }
 
@@ -102,10 +118,12 @@ struct App: AsyncParsableCommand {
             try await server.run()
         } catch {
             logger.error("Server error: \(error)")
-            if let bridge = mcpBridge as? MCPBridgeService {
-                try? await bridge.stop()
-            }
-            throw ExitCode.failure
+        }
+
+        if let bridge = mcpBridge as? MCPBridgeService {
+            logger.info("Stopping MCP bridge...")
+            try? await bridge.stop()
+            logger.info("MCP bridge stopped")
         }
     }
 }

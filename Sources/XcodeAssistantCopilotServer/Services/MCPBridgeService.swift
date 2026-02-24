@@ -39,6 +39,7 @@ public protocol MCPBridgeServiceProtocol: Sendable {
 public actor MCPBridgeService: MCPBridgeServiceProtocol {
     private let serverConfig: MCPServerConfiguration
     private let logger: LoggerProtocol
+    private let pidFile: MCPBridgePIDFileProtocol?
     private var process: Process?
     private var stdinPipe: Pipe?
     private var stdoutPipe: Pipe?
@@ -49,9 +50,18 @@ public actor MCPBridgeService: MCPBridgeServiceProtocol {
     private var stderrReadTask: Task<Void, Never>?
     private var lineBuffer: String = ""
 
-    public init(serverConfig: MCPServerConfiguration, logger: LoggerProtocol) {
+    public var processIdentifier: Int32? {
+        process?.processIdentifier
+    }
+
+    public init(
+        serverConfig: MCPServerConfiguration,
+        logger: LoggerProtocol,
+        pidFile: MCPBridgePIDFileProtocol? = nil
+    ) {
         self.serverConfig = serverConfig
         self.logger = logger
+        self.pidFile = pidFile
     }
 
     public func start() async throws {
@@ -109,7 +119,17 @@ public actor MCPBridgeService: MCPBridgeServiceProtocol {
             throw MCPBridgeError.processSpawnFailed(error.localizedDescription)
         }
 
-        logger.info("MCP bridge process started (PID: \(newProcess.processIdentifier))")
+        let pid = newProcess.processIdentifier
+        logger.info("MCP bridge process started (PID: \(pid))")
+
+        if let pidFile {
+            do {
+                try pidFile.write(pid: pid)
+                logger.debug("Wrote MCP bridge PID file (PID: \(pid))")
+            } catch {
+                logger.warn("Failed to write MCP bridge PID file: \(error)")
+            }
+        }
 
         try await initialize()
     }
@@ -129,6 +149,9 @@ public actor MCPBridgeService: MCPBridgeServiceProtocol {
             process.terminate()
             logger.info("MCP bridge process terminated")
         }
+
+        pidFile?.remove()
+        logger.debug("Removed MCP bridge PID file")
 
         cleanup()
     }
