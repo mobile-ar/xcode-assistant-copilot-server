@@ -139,7 +139,7 @@ public struct CompletionsHandler: Sendable {
         return Response(status: .ok, headers: sseHeaders(), body: .init(asyncSequence: responseStream))
     }
 
-    private func handleAgentStreaming(request: ChatCompletionRequest, credentials: CopilotCredentials) async -> Response {
+    func handleAgentStreaming(request: ChatCompletionRequest, credentials: CopilotCredentials) async -> Response {
         let completionId = ChatCompletionChunk.makeCompletionId()
         var messages = request.messages
         let model = request.model
@@ -194,8 +194,19 @@ public struct CompletionsHandler: Sendable {
                 let mcpCalls = responseToolCalls.filter { mcpToolNames.contains($0.function.name) }
                 let otherCalls = responseToolCalls.filter { !mcpToolNames.contains($0.function.name) }
 
-                if !mcpCalls.isEmpty {
-                    logger.info("Executing \(mcpCalls.count) MCP tool call(s)")
+                let shellApproved = configuration.autoApprovePermissions.isApproved(.shell)
+                let allowedCliCalls = otherCalls.filter { shellApproved && configuration.isCliToolAllowed($0.function.name) }
+                let blockedCliCalls = otherCalls.filter { !shellApproved || !configuration.isCliToolAllowed($0.function.name) }
+
+                let hasServerSideWork = !mcpCalls.isEmpty || !blockedCliCalls.isEmpty
+
+                if hasServerSideWork {
+                    if !mcpCalls.isEmpty {
+                        logger.info("Executing \(mcpCalls.count) MCP tool call(s)")
+                    }
+                    if !blockedCliCalls.isEmpty {
+                        logger.info("Blocking \(blockedCliCalls.count) disallowed CLI tool call(s)")
+                    }
 
                     let assistantMessage = ChatCompletionMessage(
                         role: .assistant,
@@ -214,14 +225,30 @@ public struct CompletionsHandler: Sendable {
                         messages.append(toolMessage)
                     }
 
-                    if !otherCalls.isEmpty {
-                        logger.info("Agent loop completed after \(iteration) iteration(s), streaming buffered response with non-MCP tool calls")
+                    for blocked in blockedCliCalls {
+                        let reason = shellApproved ? "Tool '\(blocked.function.name)' is not in the allowed CLI tools list." : "Shell tool execution is not approved. Add 'shell' to autoApprovePermissions."
+                        logger.warn("CLI tool '\(blocked.function.name)' blocked: \(reason)")
+                        let toolMessage = ChatCompletionMessage(
+                            role: .tool,
+                            content: .text("Error: \(reason)"),
+                            toolCallId: blocked.id
+                        )
+                        messages.append(toolMessage)
+                    }
+
+                    if !allowedCliCalls.isEmpty {
+                        logger.info("Agent loop completed after \(iteration) iteration(s), returning \(allowedCliCalls.count) allowed CLI tool call(s) to client")
                         return buildBufferedStreamingResponse(
                             completionId: completionId,
                             model: model,
                             content: responseContent,
-                            toolCalls: otherCalls
+                            toolCalls: allowedCliCalls
                         )
+                    }
+
+                    if !blockedCliCalls.isEmpty {
+                        logger.info("All CLI tool calls blocked, continuing agent loop")
+                        continue
                     }
 
                     logger.info("MCP tool(s) executed, streaming final response directly")
@@ -386,9 +413,19 @@ public struct CompletionsHandler: Sendable {
         return CollectedResponse(content: content, toolCalls: toolCalls)
     }
 
-    private func executeMCPTool(toolCall: ToolCall) async -> String {
+    func executeMCPTool(toolCall: ToolCall) async -> String {
         guard let mcpBridge else {
             return "Error: MCP bridge not available"
+        }
+
+        guard configuration.autoApprovePermissions.isApproved(.mcp) else {
+            logger.warn("MCP tool execution not approved for '\(toolCall.function.name)'")
+            return "Error: MCP tool execution is not approved. Add 'mcp' to autoApprovePermissions."
+        }
+
+        guard configuration.isMCPToolAllowed(toolCall.function.name) else {
+            logger.warn("MCP tool '\(toolCall.function.name)' is not in the allowed tools list")
+            return "Error: MCP tool '\(toolCall.function.name)' is not allowed by server configuration"
         }
 
         let arguments: [String: AnyCodable]

@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import XcodeAssistantCopilotServer
 
-struct MockCopilotAPIService: CopilotAPIServiceProtocol {
+private struct LocalMockCopilotAPIService: CopilotAPIServiceProtocol {
     let models: [CopilotModel]
     let shouldThrow: Error?
 
@@ -116,7 +116,7 @@ private let testCredentials = CopilotCredentials(
 }
 
 @Test func resolverReturnsChatCompletionsForUnknownModel() async {
-    let mockAPI = MockCopilotAPIService(models: [])
+    let mockAPI = LocalMockCopilotAPIService(models: [])
     let logger = MockLogger()
     let resolver = ModelEndpointResolver(copilotAPI: mockAPI, logger: logger)
 
@@ -128,7 +128,7 @@ private let testCredentials = CopilotCredentials(
     let models = [
         CopilotModel(id: "gpt-4", name: "GPT 4")
     ]
-    let mockAPI = MockCopilotAPIService(models: models)
+    let mockAPI = LocalMockCopilotAPIService(models: models)
     let logger = MockLogger()
     let resolver = ModelEndpointResolver(copilotAPI: mockAPI, logger: logger)
 
@@ -141,7 +141,7 @@ private let testCredentials = CopilotCredentials(
         CopilotModel(id: "gpt-5.1-codex", name: "GPT-5.1-Codex", supportedEndpoints: ["/responses"]),
         CopilotModel(id: "gpt-4o", name: "GPT-4o", supportedEndpoints: ["/chat/completions"])
     ]
-    let mockAPI = MockCopilotAPIService(models: models)
+    let mockAPI = LocalMockCopilotAPIService(models: models)
     let logger = MockLogger()
     let resolver = ModelEndpointResolver(copilotAPI: mockAPI, logger: logger)
 
@@ -153,7 +153,7 @@ private let testCredentials = CopilotCredentials(
     let models = [
         CopilotModel(id: "gpt-5.1", name: "GPT-5.1", supportedEndpoints: ["/chat/completions", "/responses"])
     ]
-    let mockAPI = MockCopilotAPIService(models: models)
+    let mockAPI = LocalMockCopilotAPIService(models: models)
     let logger = MockLogger()
     let resolver = ModelEndpointResolver(copilotAPI: mockAPI, logger: logger)
 
@@ -165,7 +165,7 @@ private let testCredentials = CopilotCredentials(
     let models = [
         CopilotModel(id: "claude-sonnet-4", name: "Claude Sonnet 4", supportedEndpoints: ["/chat/completions"])
     ]
-    let mockAPI = MockCopilotAPIService(models: models)
+    let mockAPI = LocalMockCopilotAPIService(models: models)
     let logger = MockLogger()
     let resolver = ModelEndpointResolver(copilotAPI: mockAPI, logger: logger)
 
@@ -223,7 +223,7 @@ private let testCredentials = CopilotCredentials(
 @Test func resolverDefaultsToChatCompletionsOnFetchError() async {
     struct FetchError: Error {}
 
-    let mockAPI = MockCopilotAPIService(shouldThrow: FetchError())
+    let mockAPI = LocalMockCopilotAPIService(shouldThrow: FetchError())
     let logger = MockLogger()
     let resolver = ModelEndpointResolver(copilotAPI: mockAPI, logger: logger)
 
@@ -241,7 +241,7 @@ private let testCredentials = CopilotCredentials(
         CopilotModel(id: "claude-sonnet-4", supportedEndpoints: ["/chat/completions"]),
         CopilotModel(id: "gpt-4"),
     ]
-    let mockAPI = MockCopilotAPIService(models: models)
+    let mockAPI = LocalMockCopilotAPIService(models: models)
     let logger = MockLogger()
     let resolver = ModelEndpointResolver(copilotAPI: mockAPI, logger: logger)
 
@@ -257,7 +257,7 @@ private let testCredentials = CopilotCredentials(
     let models = [
         CopilotModel(id: "gpt-5.1-codex", supportedEndpoints: ["/responses"])
     ]
-    let mockAPI = MockCopilotAPIService(models: models)
+    let mockAPI = LocalMockCopilotAPIService(models: models)
     let logger = MockLogger()
     let resolver = ModelEndpointResolver(copilotAPI: mockAPI, logger: logger)
 
@@ -404,7 +404,7 @@ private let testCredentials = CopilotCredentials(
     let models = [
         CopilotModel(id: "gpt-3.5-turbo", name: "GPT 3.5")
     ]
-    let mockAPI = MockCopilotAPIService(models: models)
+    let mockAPI = LocalMockCopilotAPIService(models: models)
     let logger = MockLogger()
     let resolver = ModelEndpointResolver(copilotAPI: mockAPI, logger: logger)
 
@@ -416,7 +416,7 @@ private let testCredentials = CopilotCredentials(
     let models = [
         CopilotModel(id: "gpt-5.1-codex-max", supportedEndpoints: ["/responses"])
     ]
-    let mockAPI = MockCopilotAPIService(models: models)
+    let mockAPI = LocalMockCopilotAPIService(models: models)
     let logger = MockLogger()
     let resolver = ModelEndpointResolver(copilotAPI: mockAPI, logger: logger)
 
