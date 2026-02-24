@@ -16,10 +16,11 @@ Xcode  ──►  Local Server (localhost:8080)  ──►  GitHub Copilot API
            └──────────────────────────────┘
 ```
 
-The server exposes two OpenAI-compatible endpoints that Xcode connects to:
+The server exposes the following OpenAI-compatible endpoints that Xcode connects to:
 
 - `GET /v1/models` — Lists available Copilot models
 - `POST /v1/chat/completions` — Handles chat completions with streaming SSE
+- `POST /v1/responses` — Handles responses from models that support this API (Codex models)
 
 ## Authentication
 
