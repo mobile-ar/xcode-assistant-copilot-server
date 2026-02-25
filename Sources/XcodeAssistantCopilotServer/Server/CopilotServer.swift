@@ -28,6 +28,11 @@ public struct CopilotServer: Sendable {
     }
 
     public func run() async throws {
+        let healthHandler = HealthHandler(
+            mcpBridge: mcpBridge,
+            logger: logger
+        )
+
         let modelsHandler = ModelsHandler(
             authService: authService,
             copilotAPI: copilotAPI,
@@ -37,7 +42,7 @@ public struct CopilotServer: Sendable {
         let modelEndpointResolver = ModelEndpointResolver(copilotAPI: copilotAPI, logger: logger)
         let reasoningEffortResolver = ReasoningEffortResolver()
 
-        let completionsHandler = CompletionsHandler(
+        let completionsHandler = ChatCompletionsHandler(
             authService: authService,
             copilotAPI: copilotAPI,
             mcpBridge: mcpBridge,
@@ -54,11 +59,17 @@ public struct CopilotServer: Sendable {
             XcodeUserAgentMiddleware(logger: logger)
         }
 
-        router.get("v1/models") { request, context in
+        var registry = RouteRegistry(router: router)
+
+        registry.get("health") { request, context in
+            try await healthHandler.handle(request: request, context: context)
+        }
+
+        registry.get("v1/models") { request, context in
             try await modelsHandler.handle(request: request, context: context)
         }
 
-        router.post("v1/chat/completions") { request, context in
+        registry.post("v1/chat/completions") { request, context in
             try await completionsHandler.handle(request: request, context: context)
         }
 
@@ -71,7 +82,7 @@ public struct CopilotServer: Sendable {
         )
 
         logger.info("Starting server on http://127.0.0.1:\(port)")
-        logger.info("Routes: GET /v1/models, POST /v1/chat/completions")
+        logger.info("Routes: \(registry.summary())")
 
         if mcpBridge != nil {
             logger.info("MCP bridge enabled (agent mode)")

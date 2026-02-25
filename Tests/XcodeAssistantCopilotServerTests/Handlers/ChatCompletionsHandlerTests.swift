@@ -11,8 +11,8 @@ private func makeHandler(
     reasoningEffortResolver: ReasoningEffortResolverProtocol = MockReasoningEffortResolver(),
     configuration: ServerConfiguration = ServerConfiguration(),
     logger: LoggerProtocol = MockLogger()
-) -> CompletionsHandler {
-    CompletionsHandler(
+) -> ChatCompletionsHandler {
+    ChatCompletionsHandler(
         authService: authService,
         copilotAPI: copilotAPI,
         mcpBridge: mcpBridge,

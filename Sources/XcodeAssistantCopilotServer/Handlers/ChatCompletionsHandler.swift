@@ -3,7 +3,7 @@ import Hummingbird
 import HTTPTypes
 import NIOCore
 
-public struct CompletionsHandler: Sendable {
+public struct ChatCompletionsHandler: Sendable {
     private let authService: AuthServiceProtocol
     private let copilotAPI: CopilotAPIServiceProtocol
     private let mcpBridge: MCPBridgeServiceProtocol?
@@ -90,7 +90,7 @@ public struct CompletionsHandler: Sendable {
                     try await withThrowingTaskGroup(of: Void.self) { group in
                         group.addTask {
                             try await Task.sleep(for: .seconds(Self.requestTimeoutSeconds))
-                            throw CompletionsHandlerError.timeout
+                            throw ChatCompletionsHandlerError.timeout
                         }
 
                         group.addTask { [logger] in
@@ -128,7 +128,7 @@ public struct CompletionsHandler: Sendable {
                         group.cancelAll()
                     }
                 } catch {
-                    if error is CompletionsHandlerError {
+                    if error is ChatCompletionsHandlerError {
                         logger.warn("Stream timed out after \(Self.requestTimeoutSeconds) seconds")
                     }
                     continuation.finish()
@@ -324,7 +324,7 @@ public struct CompletionsHandler: Sendable {
                     try await withThrowingTaskGroup(of: Void.self) { group in
                         group.addTask {
                             try await Task.sleep(for: .seconds(Self.requestTimeoutSeconds))
-                            throw CompletionsHandlerError.timeout
+                            throw ChatCompletionsHandlerError.timeout
                         }
 
                         group.addTask { [logger] in
@@ -352,7 +352,7 @@ public struct CompletionsHandler: Sendable {
                         group.cancelAll()
                     }
                 } catch {
-                    if error is CompletionsHandlerError {
+                    if error is ChatCompletionsHandlerError {
                         logger.warn("Stream timed out after \(Self.requestTimeoutSeconds) seconds")
                     }
                     continuation.finish()
@@ -591,7 +591,7 @@ public struct CompletionsHandler: Sendable {
     }
 }
 
-private enum CompletionsHandlerError: Error {
+private enum ChatCompletionsHandlerError: Error {
     case timeout
 }
 

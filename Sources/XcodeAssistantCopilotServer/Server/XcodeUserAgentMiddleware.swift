@@ -15,6 +15,10 @@ public struct XcodeUserAgentMiddleware: RouterMiddleware {
         context: AppRequestContext,
         next: (Request, AppRequestContext) async throws -> Response
     ) async throws -> Response {
+        if request.uri.path == "/health" {
+            return try await next(request, context)
+        }
+
         let userAgent = request.headers[.userAgent] ?? ""
 
         guard userAgent.hasPrefix("Xcode/") else {
