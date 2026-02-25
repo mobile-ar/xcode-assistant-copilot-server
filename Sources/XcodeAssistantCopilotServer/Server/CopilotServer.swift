@@ -55,6 +55,7 @@ public struct CopilotServer: Sendable {
         let router = Router(context: AppRequestContext.self)
 
         router.addMiddleware {
+            RequestLoggingMiddleware(logger: logger)
             CORSMiddleware(logger: logger)
             XcodeUserAgentMiddleware(logger: logger)
         }

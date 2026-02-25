@@ -36,7 +36,10 @@ let package = Package(
         ),
         .testTarget(
             name: "XcodeAssistantCopilotServerTests",
-            dependencies: ["XcodeAssistantCopilotServer"],
+            dependencies: [
+                "XcodeAssistantCopilotServer",
+                .product(name: "HummingbirdTesting", package: "hummingbird"),
+            ],
             path: "Tests/XcodeAssistantCopilotServerTests"
         ),
     ]
