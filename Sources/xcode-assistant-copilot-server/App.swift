@@ -46,13 +46,13 @@ struct App: AsyncParsableCommand {
         orphanCleaner.cleanupIfNeeded()
 
         let processRunner = ProcessRunner()
-        let urlSession = URLSessionProvider.configuredSession()
-        let deviceFlowService = GitHubDeviceFlowService(logger: logger, session: urlSession)
+        let httpClient = HTTPClient()
+        let deviceFlowService = GitHubDeviceFlowService(logger: logger, httpClient: httpClient)
         let authService = GitHubCLIAuthService(
             processRunner: processRunner,
             logger: logger,
             deviceFlowService: deviceFlowService,
-            session: urlSession
+            httpClient: httpClient
         )
 
         logger.info("Checking authentication...")
@@ -72,7 +72,7 @@ struct App: AsyncParsableCommand {
             }
         }
 
-        let copilotAPI = CopilotAPIService(logger: logger, session: urlSession)
+        let copilotAPI = CopilotAPIService(httpClient: httpClient, logger: logger)
 
         var mcpBridge: MCPBridgeServiceProtocol?
 

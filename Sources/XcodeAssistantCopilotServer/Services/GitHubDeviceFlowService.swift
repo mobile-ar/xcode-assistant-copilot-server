@@ -33,19 +33,17 @@ public protocol DeviceFlowServiceProtocol: Sendable {
 }
 
 public struct GitHubDeviceFlowService: DeviceFlowServiceProtocol {
-    private let session: URLSession
+    private let httpClient: HTTPClientProtocol
     private let logger: LoggerProtocol
     private let tokenStoragePath: String
 
     static let clientID = "Iv1.b507a08c87ecfe98"
-    private static let deviceCodeURL = "https://github.com/login/device/code"
-    private static let accessTokenURL = "https://github.com/login/oauth/access_token"
     private static let configDirectoryName = "xcode-assistant-copilot-server"
     private static let tokenFileName = "github-token.json"
 
-    public init(logger: LoggerProtocol, session: URLSession = .shared, tokenStoragePath: String? = nil) {
+    public init(logger: LoggerProtocol, httpClient: HTTPClientProtocol, tokenStoragePath: String? = nil) {
         self.logger = logger
-        self.session = session
+        self.httpClient = httpClient
         self.tokenStoragePath = tokenStoragePath ?? Self.defaultTokenStoragePath()
     }
 
@@ -87,40 +85,22 @@ public struct GitHubDeviceFlowService: DeviceFlowServiceProtocol {
     }
 
     private func requestDeviceCode() async throws -> DeviceCodeResponse {
-        guard let url = URL(string: Self.deviceCodeURL) else {
-            throw DeviceFlowError.requestFailed("Invalid device code URL")
-        }
+        let endpoint = DeviceCodeEndpoint(clientID: Self.clientID, scope: "user:email")
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        let body: [String: String] = [
-            "client_id": Self.clientID,
-            "scope": "user:email"
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let data: Data
-        let response: URLResponse
+        let response: DataResponse
         do {
-            (data, response) = try await session.data(for: request)
+            response = try await httpClient.execute(endpoint)
         } catch {
             throw DeviceFlowError.networkError(error.localizedDescription)
         }
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw DeviceFlowError.invalidResponse("Non-HTTP response received")
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            let responseBody = String(data: data, encoding: .utf8) ?? ""
-            throw DeviceFlowError.requestFailed("HTTP \(httpResponse.statusCode): \(responseBody)")
+        guard response.statusCode == 200 else {
+            let responseBody = String(data: response.data, encoding: .utf8) ?? ""
+            throw DeviceFlowError.requestFailed("HTTP \(response.statusCode): \(responseBody)")
         }
 
         do {
-            return try JSONDecoder().decode(DeviceCodeResponse.self, from: data)
+            return try JSONDecoder().decode(DeviceCodeResponse.self, from: response.data)
         } catch {
             throw DeviceFlowError.invalidResponse("Failed to decode device code response: \(error.localizedDescription)")
         }
@@ -163,41 +143,22 @@ public struct GitHubDeviceFlowService: DeviceFlowServiceProtocol {
     }
 
     private func pollAccessToken(deviceCode: String) async throws -> DeviceCodePollResponse {
-        guard let url = URL(string: Self.accessTokenURL) else {
-            throw DeviceFlowError.requestFailed("Invalid access token URL")
-        }
+        let endpoint = AccessTokenPollEndpoint(clientID: Self.clientID, deviceCode: deviceCode)
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        let body: [String: String] = [
-            "client_id": Self.clientID,
-            "device_code": deviceCode,
-            "grant_type": "urn:ietf:params:oauth:grant-type:device_code"
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let data: Data
-        let response: URLResponse
+        let response: DataResponse
         do {
-            (data, response) = try await session.data(for: request)
+            response = try await httpClient.execute(endpoint)
         } catch {
             throw DeviceFlowError.networkError(error.localizedDescription)
         }
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw DeviceFlowError.invalidResponse("Non-HTTP response received")
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            let responseBody = String(data: data, encoding: .utf8) ?? ""
-            throw DeviceFlowError.requestFailed("HTTP \(httpResponse.statusCode): \(responseBody)")
+        guard response.statusCode == 200 else {
+            let responseBody = String(data: response.data, encoding: .utf8) ?? ""
+            throw DeviceFlowError.requestFailed("HTTP \(response.statusCode): \(responseBody)")
         }
 
         do {
-            return try JSONDecoder().decode(DeviceCodePollResponse.self, from: data)
+            return try JSONDecoder().decode(DeviceCodePollResponse.self, from: response.data)
         } catch {
             throw DeviceFlowError.invalidResponse("Failed to decode poll response: \(error.localizedDescription)")
         }

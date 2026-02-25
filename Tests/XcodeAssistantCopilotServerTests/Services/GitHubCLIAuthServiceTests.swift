@@ -70,7 +70,7 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     let deviceFlow = MockDeviceFlowService()
     deviceFlow.storedToken = OAuthToken(accessToken: "gho_stored_oauth_token", tokenType: "bearer", scope: "user:email")
 
-    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow)
+    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: MockHTTPClient())
     let token = try await authService.getGitHubToken()
     #expect(token == "gho_stored_oauth_token")
 }
@@ -87,7 +87,7 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     })
     let logger = MockLogger()
     let deviceFlow = MockDeviceFlowService()
-    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow)
+    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: MockHTTPClient())
     let token = try await authService.getGitHubToken()
     #expect(token == "ghp_test1234567890abcdef")
 }
@@ -96,7 +96,7 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     let runner = MockAuthProcessRunner(stdout: "", stderr: "", exitCode: 0)
     let logger = MockLogger()
     let deviceFlow = MockDeviceFlowService()
-    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow)
+    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: MockHTTPClient())
 
     do {
         _ = try await authService.getGitHubToken()
@@ -121,7 +121,7 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     )
     let logger = MockLogger()
     let deviceFlow = MockDeviceFlowService()
-    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow)
+    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: MockHTTPClient())
 
     do {
         _ = try await authService.getGitHubToken()
@@ -146,7 +146,7 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     )
     let logger = MockLogger()
     let deviceFlow = MockDeviceFlowService()
-    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow)
+    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: MockHTTPClient())
 
     do {
         _ = try await authService.getGitHubToken()
@@ -171,7 +171,7 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     )
     let logger = MockLogger()
     let deviceFlow = MockDeviceFlowService()
-    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow)
+    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: MockHTTPClient())
 
     do {
         _ = try await authService.getGitHubToken()
@@ -192,7 +192,7 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     let runner = MockAuthProcessRunner(throwing: ProcessRunnerError.executableNotFound("/usr/bin/gh"))
     let logger = MockLogger()
     let deviceFlow = MockDeviceFlowService()
-    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow)
+    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: MockHTTPClient())
 
     do {
         _ = try await authService.getGitHubToken()
@@ -216,7 +216,7 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     })
     let logger = MockLogger()
     let deviceFlow = MockDeviceFlowService()
-    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow)
+    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: MockHTTPClient())
     let token = try await authService.getGitHubToken()
     #expect(token == "ghp_trimmed_token")
     #expect(!token.contains("\n"))
@@ -233,9 +233,9 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     })
     let logger = MockLogger()
     let deviceFlow = MockDeviceFlowService()
-    let _ = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow)
+    let _ = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: MockHTTPClient())
 
-    // Note: Full token caching test requires a mock URLSession to intercept the
+    // Note: Full token caching test requires a MockHTTPClient to intercept the
     // Copilot token exchange HTTP call. This test verifies the service can be created.
     #expect(callCount.withLock { $0 } == 0)
 }
@@ -285,7 +285,7 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     let runner = MockAuthProcessRunner(stdout: "token", stderr: "", exitCode: 0)
     let logger = MockLogger()
     let deviceFlow = MockDeviceFlowService()
-    let service: any AuthServiceProtocol = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow)
+    let service: any AuthServiceProtocol = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: MockHTTPClient())
     _ = service
 }
 
@@ -303,7 +303,7 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     })
     let logger = MockLogger()
     let deviceFlow = MockDeviceFlowService()
-    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow)
+    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: MockHTTPClient())
 
     // If gh is at a standard path, it will be found directly.
     // This test just verifies the service can find and use gh.
@@ -319,7 +319,7 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     )
     let logger = MockLogger()
     let deviceFlow = MockDeviceFlowService()
-    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow)
+    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: MockHTTPClient())
 
     do {
         _ = try await authService.getGitHubToken()
@@ -349,7 +349,7 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     let deviceFlow = MockDeviceFlowService()
     deviceFlow.storedToken = OAuthToken(accessToken: "gho_oauth_token", tokenType: "bearer", scope: "user:email")
 
-    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow)
+    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: MockHTTPClient())
     let token = try await authService.getGitHubToken()
     #expect(token == "gho_oauth_token")
     #expect(!ghAuthTokenCalled.withLock { $0 })

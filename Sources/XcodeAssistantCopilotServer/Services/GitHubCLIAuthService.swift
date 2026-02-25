@@ -41,23 +41,22 @@ public protocol AuthServiceProtocol: Sendable {
 public actor GitHubCLIAuthService: AuthServiceProtocol {
     private let processRunner: ProcessRunnerProtocol
     private let logger: LoggerProtocol
-    private let session: URLSession
+    private let httpClient: HTTPClientProtocol
     private let deviceFlowService: DeviceFlowServiceProtocol
     private var cachedToken: CopilotToken?
 
-    private static let tokenEndpoint = "https://api.github.com/copilot_internal/v2/token"
     private static let ghPaths = ["/usr/local/bin/gh", "/opt/homebrew/bin/gh", "/usr/bin/gh"]
 
     public init(
         processRunner: ProcessRunnerProtocol,
         logger: LoggerProtocol,
         deviceFlowService: DeviceFlowServiceProtocol,
-        session: URLSession = .shared
+        httpClient: HTTPClientProtocol
     ) {
         self.processRunner = processRunner
         self.logger = logger
         self.deviceFlowService = deviceFlowService
-        self.session = session
+        self.httpClient = httpClient
     }
 
     public func getGitHubToken() async throws -> String {
@@ -116,43 +115,29 @@ public actor GitHubCLIAuthService: AuthServiceProtocol {
     }
 
     private func exchangeForCopilotToken(githubToken: String) async throws -> CopilotToken {
-        guard let url = URL(string: Self.tokenEndpoint) else {
-            throw AuthServiceError.tokenExchangeFailed("Invalid token endpoint URL")
-        }
+        let endpoint = CopilotTokenEndpoint(githubToken: githubToken)
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("token \(githubToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("Xcode/26.0", forHTTPHeaderField: "Editor-Version")
-        request.setValue("copilot-xcode/0.1.0", forHTTPHeaderField: "Editor-Plugin-Version")
-
-        let data: Data
-        let response: URLResponse
+        let response: DataResponse
         do {
-            (data, response) = try await session.data(for: request)
+            response = try await httpClient.execute(endpoint)
         } catch {
             throw AuthServiceError.tokenExchangeFailed("Network error: \(error.localizedDescription)")
         }
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AuthServiceError.tokenExchangeFailed("Invalid response")
-        }
-
-        if httpResponse.statusCode == 404 {
+        if response.statusCode == 404 {
             throw AuthServiceError.copilotSubscriptionRequired
         }
 
-        guard httpResponse.statusCode == 200 else {
-            let body = String(data: data, encoding: .utf8) ?? ""
+        guard response.statusCode == 200 else {
+            let body = String(data: response.data, encoding: .utf8) ?? ""
             throw AuthServiceError.tokenExchangeFailed(
-                "HTTP \(httpResponse.statusCode): \(body)"
+                "HTTP \(response.statusCode): \(body)"
             )
         }
 
         let tokenResponse: CopilotTokenResponse
         do {
-            tokenResponse = try JSONDecoder().decode(CopilotTokenResponse.self, from: data)
+            tokenResponse = try JSONDecoder().decode(CopilotTokenResponse.self, from: response.data)
         } catch {
             throw AuthServiceError.tokenExchangeFailed("Failed to decode response: \(error.localizedDescription)")
         }

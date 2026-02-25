@@ -38,121 +38,31 @@ public protocol CopilotAPIServiceProtocol: Sendable {
     ) async throws -> AsyncThrowingStream<SSEEvent, Error>
 }
 
-public struct CopilotChatRequest: Encodable, Sendable {
-    public let model: String
-    public let messages: [ChatCompletionMessage]
-    public let temperature: Double?
-    public let topP: Double?
-    public let maxTokens: Int?
-    public let stop: StopSequence?
-    public let tools: [Tool]?
-    public let toolChoice: AnyCodable?
-    public let reasoningEffort: ReasoningEffort?
-    public let stream: Bool
-
-    enum CodingKeys: String, CodingKey {
-        case model
-        case messages
-        case temperature
-        case topP = "top_p"
-        case maxTokens = "max_tokens"
-        case stop
-        case tools
-        case toolChoice = "tool_choice"
-        case reasoningEffort = "reasoning_effort"
-        case stream
-    }
-
-    public init(
-        model: String,
-        messages: [ChatCompletionMessage],
-        temperature: Double? = nil,
-        topP: Double? = nil,
-        maxTokens: Int? = nil,
-        stop: StopSequence? = nil,
-        tools: [Tool]? = nil,
-        toolChoice: AnyCodable? = nil,
-        reasoningEffort: ReasoningEffort? = nil,
-        stream: Bool = true
-    ) {
-        self.model = model
-        self.messages = messages
-        self.temperature = temperature
-        self.topP = topP
-        self.maxTokens = maxTokens
-        self.stop = stop
-        self.tools = tools
-        self.toolChoice = toolChoice
-        self.reasoningEffort = reasoningEffort
-        self.stream = stream
-    }
-
-    public func withReasoningEffort(_ effort: ReasoningEffort?) -> CopilotChatRequest {
-        CopilotChatRequest(
-            model: model,
-            messages: messages,
-            temperature: temperature,
-            topP: topP,
-            maxTokens: maxTokens,
-            stop: stop,
-            tools: tools,
-            toolChoice: toolChoice,
-            reasoningEffort: effort,
-            stream: stream
-        )
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(model, forKey: .model)
-        try container.encode(messages, forKey: .messages)
-        try container.encode(stream, forKey: .stream)
-        try container.encodeIfPresent(temperature, forKey: .temperature)
-        try container.encodeIfPresent(topP, forKey: .topP)
-        try container.encodeIfPresent(maxTokens, forKey: .maxTokens)
-        try container.encodeIfPresent(stop, forKey: .stop)
-        if let tools, !tools.isEmpty {
-            try container.encode(tools, forKey: .tools)
-        }
-        try container.encodeIfPresent(toolChoice, forKey: .toolChoice)
-        try container.encodeIfPresent(reasoningEffort, forKey: .reasoningEffort)
-    }
-}
-
 public struct CopilotAPIService: CopilotAPIServiceProtocol {
-    private let session: URLSession
+    private let httpClient: HTTPClientProtocol
     private let logger: LoggerProtocol
     private let sseParser: SSEParser
 
-    private static let modelsPath = "/models"
-    private static let chatCompletionsPath = "/chat/completions"
-    private static let responsesPath = "/responses"
-
-    public init(logger: LoggerProtocol, session: URLSession = .shared) {
+    public init(httpClient: HTTPClientProtocol, logger: LoggerProtocol) {
+        self.httpClient = httpClient
         self.logger = logger
-        self.session = session
         self.sseParser = SSEParser()
     }
 
     public func listModels(credentials: CopilotCredentials) async throws -> [CopilotModel] {
-        let url = try buildURL(baseURL: credentials.apiEndpoint, path: Self.modelsPath)
+        let endpoint = ListModelsEndpoint(credentials: credentials)
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        applyHeaders(to: &request, token: credentials.token)
-
-        let data: Data
-        let response: URLResponse
+        let response: DataResponse
         do {
-            (data, response) = try await session.data(for: request)
-        } catch {
-            throw CopilotAPIError.networkError(error.localizedDescription)
+            response = try await httpClient.execute(endpoint)
+        } catch let error as HTTPClientError {
+            throw CopilotAPIError.networkError(error.description)
         }
 
-        try validateHTTPResponse(response, data: data)
+        try validateDataResponse(response)
 
         do {
-            let modelsResponse = try JSONDecoder().decode(CopilotModelsResponse.self, from: data)
+            let modelsResponse = try JSONDecoder().decode(CopilotModelsResponse.self, from: response.data)
             let models = modelsResponse.allModels
             logger.debug("Fetched \(models.count) model(s) from Copilot API")
             return models
@@ -165,66 +75,38 @@ public struct CopilotAPIService: CopilotAPIServiceProtocol {
         request: CopilotChatRequest,
         credentials: CopilotCredentials
     ) async throws -> AsyncThrowingStream<SSEEvent, Error> {
-        let url = try buildURL(baseURL: credentials.apiEndpoint, path: Self.chatCompletionsPath)
-
-        var urlRequest = URLRequest(url: url)
-        urlRequest.httpMethod = "POST"
-        urlRequest.timeoutInterval = 300
-        applyHeaders(to: &urlRequest, token: credentials.token)
-        urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        urlRequest.setValue("conversation-panel", forHTTPHeaderField: "Openai-Intent")
-
+        let endpoint: ChatCompletionsStreamEndpoint
         do {
-            urlRequest.httpBody = try JSONEncoder().encode(request)
+            endpoint = try ChatCompletionsStreamEndpoint(request: request, credentials: credentials)
         } catch {
             throw CopilotAPIError.streamingFailed("Failed to encode request body: \(error.localizedDescription)")
         }
 
         logger.debug("Sending chat completion request for model: \(request.model) to \(credentials.apiEndpoint)")
 
-        let (bytes, response) = try await session.bytes(for: urlRequest)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw CopilotAPIError.networkError("Invalid response type")
+        let streamResponse: StreamResponse
+        do {
+            streamResponse = try await httpClient.stream(endpoint)
+        } catch let error as HTTPClientError {
+            throw CopilotAPIError.networkError(error.description)
         }
 
-        if httpResponse.statusCode == 401 {
-            throw CopilotAPIError.unauthorized
+        try validateStreamResponse(streamResponse)
+
+        guard case .lines(let lines) = streamResponse.content else {
+            throw CopilotAPIError.streamingFailed("Unexpected stream content after validation")
         }
 
-        guard (200...299).contains(httpResponse.statusCode) else {
-            var collectedData = Data()
-            for try await byte in bytes {
-                collectedData.append(byte)
-            }
-            let body = String(data: collectedData, encoding: .utf8) ?? ""
-            throw CopilotAPIError.requestFailed(statusCode: httpResponse.statusCode, body: body)
-        }
-
-        return sseParser.parse(bytes: bytes)
+        return sseParser.parseLines(lines)
     }
 
     public func streamResponses(
         request: ResponsesAPIRequest,
         credentials: CopilotCredentials
     ) async throws -> AsyncThrowingStream<SSEEvent, Error> {
-        let url = try buildURL(baseURL: credentials.apiEndpoint, path: Self.responsesPath)
-        logger.info("Responses API URL: \(url.absoluteString)")
-
-        var urlRequest = URLRequest(url: url)
-        urlRequest.httpMethod = "POST"
-        urlRequest.timeoutInterval = 300
-        applyHeaders(to: &urlRequest, token: credentials.token)
-        urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        urlRequest.setValue("conversation-panel", forHTTPHeaderField: "Openai-Intent")
-
+        let endpoint: ResponsesStreamEndpoint
         do {
-            let body = try JSONEncoder().encode(request)
-            urlRequest.httpBody = body
-            logger.debug("Responses API request body size: \(body.count) bytes")
-            if let bodyString = String(data: body, encoding: .utf8) {
-                logger.debug("Responses API request body: \(bodyString)")
-            }
+            endpoint = try ResponsesStreamEndpoint(request: request, credentials: credentials)
         } catch {
             logger.error("Failed to encode responses request body: \(error)")
             throw CopilotAPIError.streamingFailed("Failed to encode responses request body: \(error.localizedDescription)")
@@ -232,66 +114,47 @@ public struct CopilotAPIService: CopilotAPIServiceProtocol {
 
         logger.info("Sending responses API request for model: \(request.model) to \(credentials.apiEndpoint)")
 
-        let (bytes, response) = try await session.bytes(for: urlRequest)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            logger.error("Responses API returned invalid (non-HTTP) response type")
-            throw CopilotAPIError.networkError("Invalid response type")
+        let streamResponse: StreamResponse
+        do {
+            streamResponse = try await httpClient.stream(endpoint)
+        } catch let error as HTTPClientError {
+            throw CopilotAPIError.networkError(error.description)
         }
 
-        logger.info("Responses API HTTP status: \(httpResponse.statusCode)")
-        let responseHeaders = httpResponse.allHeaderFields.map { "\($0.key): \($0.value)" }.joined(separator: ", ")
-        logger.debug("Responses API response headers: \(responseHeaders)")
+        logger.info("Responses API HTTP status: \(streamResponse.statusCode)")
 
-        if httpResponse.statusCode == 401 {
-            logger.error("Responses API returned 401 Unauthorized")
-            throw CopilotAPIError.unauthorized
-        }
+        try validateStreamResponse(streamResponse)
 
-        guard (200...299).contains(httpResponse.statusCode) else {
-            var collectedData = Data()
-            for try await byte in bytes {
-                collectedData.append(byte)
-            }
-            let body = String(data: collectedData, encoding: .utf8) ?? ""
-            logger.error("Responses API error response (HTTP \(httpResponse.statusCode)): \(body)")
-            throw CopilotAPIError.requestFailed(statusCode: httpResponse.statusCode, body: body)
+        guard case .lines(let lines) = streamResponse.content else {
+            throw CopilotAPIError.streamingFailed("Unexpected stream content after validation")
         }
 
         logger.info("Responses API stream connected successfully, beginning SSE parsing")
-        return sseParser.parse(bytes: bytes)
+        return sseParser.parseLines(lines)
     }
 
-    private func buildURL(baseURL: String, path: String) throws -> URL {
-        let urlString = baseURL + path
-        guard let url = URL(string: urlString) else {
-            throw CopilotAPIError.invalidURL(urlString)
-        }
-        return url
-    }
-
-    private func applyHeaders(to request: inout URLRequest, token: String) {
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(UUID().uuidString, forHTTPHeaderField: "X-Request-Id")
-        request.setValue("github-copilot", forHTTPHeaderField: "Openai-Organization")
-        request.setValue("Xcode/26.0", forHTTPHeaderField: "Editor-Version")
-        request.setValue("copilot-xcode/0.1.0", forHTTPHeaderField: "Editor-Plugin-Version")
-        request.setValue("vscode-chat", forHTTPHeaderField: "Copilot-Integration-Id")
-    }
-
-    private func validateHTTPResponse(_ response: URLResponse, data: Data) throws {
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw CopilotAPIError.networkError("Invalid response type")
-        }
-
-        if httpResponse.statusCode == 401 {
+    private func validateDataResponse(_ response: DataResponse) throws {
+        if response.statusCode == 401 {
             throw CopilotAPIError.unauthorized
         }
 
-        guard (200...299).contains(httpResponse.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? ""
-            throw CopilotAPIError.requestFailed(statusCode: httpResponse.statusCode, body: body)
+        guard (200...299).contains(response.statusCode) else {
+            let body = String(data: response.data, encoding: .utf8) ?? ""
+            throw CopilotAPIError.requestFailed(statusCode: response.statusCode, body: body)
+        }
+    }
+
+    private func validateStreamResponse(_ response: StreamResponse) throws {
+        if response.statusCode == 401 {
+            if case .errorBody(let body) = response.content {
+                logger.error("Copilot API returned 401 Unauthorized: \(body)")
+            }
+            throw CopilotAPIError.unauthorized
+        }
+
+        if case .errorBody(let body) = response.content {
+            logger.error("Copilot API error response (HTTP \(response.statusCode)): \(body)")
+            throw CopilotAPIError.requestFailed(statusCode: response.statusCode, body: body)
         }
     }
 }
