@@ -29,6 +29,15 @@ public struct CopilotModel: Decodable, Sendable {
         self.supportedEndpoints = supportedEndpoints
     }
 
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        version = try container.decodeIfPresent(String.self, forKey: .version)
+        capabilities = try? container.decodeIfPresent(CopilotModelCapabilities.self, forKey: .capabilities)
+        supportedEndpoints = try? container.decodeIfPresent([String].self, forKey: .supportedEndpoints)
+    }
+
     public var requiresResponsesAPI: Bool {
         guard let endpoints = supportedEndpoints else { return false }
         return endpoints.contains("/responses") && !endpoints.contains("/chat/completions")
@@ -49,10 +58,23 @@ public struct CopilotModelCapabilities: Decodable, Sendable {
     public let type: String?
     public let supports: CopilotModelSupports?
 
+    enum CodingKeys: String, CodingKey {
+        case family
+        case type
+        case supports
+    }
+
     public init(family: String? = nil, type: String? = nil, supports: CopilotModelSupports? = nil) {
         self.family = family
         self.type = type
         self.supports = supports
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        family = try container.decodeIfPresent(String.self, forKey: .family)
+        type = try container.decodeIfPresent(String.self, forKey: .type)
+        supports = try? container.decodeIfPresent(CopilotModelSupports.self, forKey: .supports)
     }
 }
 
@@ -88,6 +110,36 @@ public struct CopilotModelSupports: Decodable, Sendable {
         self.structuredOutputs = structuredOutputs
         self.vision = vision
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        reasoningEffort = Self.decodeBoolFlexibly(from: container, key: .reasoningEffort)
+        streaming = Self.decodeBoolFlexibly(from: container, key: .streaming)
+        toolCalls = Self.decodeBoolFlexibly(from: container, key: .toolCalls)
+        parallelToolCalls = Self.decodeBoolFlexibly(from: container, key: .parallelToolCalls)
+        structuredOutputs = Self.decodeBoolFlexibly(from: container, key: .structuredOutputs)
+        vision = Self.decodeBoolFlexibly(from: container, key: .vision)
+    }
+
+    private static func decodeBoolFlexibly(from container: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> Bool? {
+        if let boolValue = try? container.decodeIfPresent(Bool.self, forKey: key) {
+            return boolValue
+        }
+        if let intValue = try? container.decodeIfPresent(Int.self, forKey: key) {
+            return intValue != 0
+        }
+        if let stringValue = try? container.decodeIfPresent(String.self, forKey: key) {
+            switch stringValue.lowercased() {
+            case "true", "yes", "1":
+                return true
+            case "false", "no", "0":
+                return false
+            default:
+                return nil
+            }
+        }
+        return nil
+    }
 }
 
 public struct CopilotModelsResponse: Decodable, Sendable {
@@ -101,5 +153,34 @@ public struct CopilotModelsResponse: Decodable, Sendable {
     public init(data: [CopilotModel]? = nil, models: [CopilotModel]? = nil) {
         self.data = data
         self.models = models
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case data
+        case models
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        data = Self.decodeLenientArray(from: container, key: .data)
+        models = Self.decodeLenientArray(from: container, key: .models)
+    }
+
+    private static func decodeLenientArray(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        key: CodingKeys
+    ) -> [CopilotModel]? {
+        guard var arrayContainer = try? container.nestedUnkeyedContainer(forKey: key) else {
+            return nil
+        }
+        var result: [CopilotModel] = []
+        while !arrayContainer.isAtEnd {
+            if let model = try? arrayContainer.decode(CopilotModel.self) {
+                result.append(model)
+            } else {
+                _ = try? arrayContainer.decode(AnyCodable.self)
+            }
+        }
+        return result
     }
 }

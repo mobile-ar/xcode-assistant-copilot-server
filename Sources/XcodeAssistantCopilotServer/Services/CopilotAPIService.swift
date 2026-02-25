@@ -61,11 +61,26 @@ public struct CopilotAPIService: CopilotAPIServiceProtocol {
 
         try validateDataResponse(response)
 
+        let rawBody: String
+        if let jsonObject = try? JSONSerialization.jsonObject(with: response.data),
+           let prettyData = try? JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted, .sortedKeys]),
+           let prettyString = String(data: prettyData, encoding: .utf8) {
+            rawBody = prettyString
+        } else {
+            rawBody = String(data: response.data, encoding: .utf8) ?? "<non-UTF8 data, \(response.data.count) bytes>"
+        }
+        logger.debug("Copilot models raw response (\(response.data.count) bytes):\n\(rawBody)")
+
         do {
             let modelsResponse = try JSONDecoder().decode(CopilotModelsResponse.self, from: response.data)
             let models = modelsResponse.allModels
             logger.debug("Fetched \(models.count) model(s) from Copilot API")
             return models
+        } catch let decodingError as DecodingError {
+            let detail = Self.decodingErrorDetail(decodingError)
+            logger.error("Models decoding failed: \(detail)")
+            logger.error("Raw response body: \(rawBody)")
+            throw CopilotAPIError.decodingFailed(detail)
         } catch {
             throw CopilotAPIError.decodingFailed(error.localizedDescription)
         }
@@ -141,6 +156,26 @@ public struct CopilotAPIService: CopilotAPIServiceProtocol {
         guard (200...299).contains(response.statusCode) else {
             let body = String(data: response.data, encoding: .utf8) ?? ""
             throw CopilotAPIError.requestFailed(statusCode: response.statusCode, body: body)
+        }
+    }
+
+    static func decodingErrorDetail(_ error: DecodingError) -> String {
+        switch error {
+        case .typeMismatch(let type, let context):
+            let path = context.codingPath.map(\.stringValue).joined(separator: ".")
+            return "Type mismatch at '\(path)': expected \(type) — \(context.debugDescription)"
+        case .valueNotFound(let type, let context):
+            let path = context.codingPath.map(\.stringValue).joined(separator: ".")
+            return "Value not found at '\(path)': expected \(type) — \(context.debugDescription)"
+        case .keyNotFound(let key, let context):
+            let path = context.codingPath.map(\.stringValue).joined(separator: ".")
+            let fullPath = path.isEmpty ? key.stringValue : "\(path).\(key.stringValue)"
+            return "Key not found: '\(fullPath)' — \(context.debugDescription)"
+        case .dataCorrupted(let context):
+            let path = context.codingPath.map(\.stringValue).joined(separator: ".")
+            return "Data corrupted at '\(path)' — \(context.debugDescription)"
+        @unknown default:
+            return error.localizedDescription
         }
     }
 
