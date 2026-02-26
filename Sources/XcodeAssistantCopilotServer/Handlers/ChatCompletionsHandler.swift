@@ -310,7 +310,7 @@ public struct ChatCompletionsHandler: Sendable {
 
         let eventStream: AsyncThrowingStream<SSEEvent, Error>
         do {
-            eventStream = try await streamForModel(copilotRequest: copilotRequest, credentials: credentials)
+            eventStream = try await streamForModelWithRetry(copilotRequest: copilotRequest, credentials: credentials)
         } catch {
             logger.error("Copilot API streaming failed for final agent response: \(error)")
             return ErrorResponseBuilder.build(status: .internalServerError, type: "api_error", message: "Failed to start streaming: \(error)")
@@ -508,6 +508,12 @@ public struct ChatCompletionsHandler: Sendable {
         }
 
         return Response(status: .ok, headers: sseHeaders(), body: .init(asyncSequence: responseStream))
+    }
+
+    private func streamForModelWithRetry(copilotRequest: CopilotChatRequest, credentials: CopilotCredentials) async throws -> AsyncThrowingStream<SSEEvent, Error> {
+        try await authService.retryingOnUnauthorized(credentials: credentials) { newCredentials in
+            try await streamForModel(copilotRequest: copilotRequest, credentials: newCredentials)
+        }
     }
 
     private func streamForModel(copilotRequest: CopilotChatRequest, credentials: CopilotCredentials) async throws -> AsyncThrowingStream<SSEEvent, Error> {

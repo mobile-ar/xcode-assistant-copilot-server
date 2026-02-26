@@ -708,3 +708,4 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
     #expect(logger.warnMessages.contains { $0.contains("blocked") })
     #expect(copilotAPI.streamChatCompletionsCallCount >= 2)
 }
+

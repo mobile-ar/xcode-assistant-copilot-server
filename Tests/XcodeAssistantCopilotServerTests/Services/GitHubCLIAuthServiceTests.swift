@@ -458,3 +458,124 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     #expect(deviceFlow.deleteStoredTokenCallCount == 1)
     #expect(deviceFlow.storedToken == nil)
 }
+
+@Test func invalidateCachedTokenForcesRefreshOnNextCall() async throws {
+    let tokenJSON1 = """
+    {"token":"token-1","expires_at":\(Int(Date.now.timeIntervalSince1970) + 3600),"endpoints":{"api":"https://api.endpoint1.com"}}
+    """
+    let tokenJSON2 = """
+    {"token":"token-2","expires_at":\(Int(Date.now.timeIntervalSince1970) + 3600),"endpoints":{"api":"https://api.endpoint2.com"}}
+    """
+
+    let httpClient = MockHTTPClient()
+    httpClient.executeResults = [
+        .success(DataResponse(data: Data(tokenJSON1.utf8), statusCode: 200)),
+        .success(DataResponse(data: Data(tokenJSON2.utf8), statusCode: 200))
+    ]
+
+    let runner = MockAuthProcessRunner(stdout: "ghp_test_token")
+    let logger = MockLogger()
+    let deviceFlow = MockDeviceFlowService()
+    let service = GitHubCLIAuthService(
+        processRunner: runner,
+        logger: logger,
+        deviceFlowService: deviceFlow,
+        httpClient: httpClient
+    )
+
+    let credentials1 = try await service.getValidCopilotToken()
+    #expect(credentials1.token == "token-1")
+
+    let cachedCredentials = try await service.getValidCopilotToken()
+    #expect(cachedCredentials.token == "token-1")
+    #expect(httpClient.executeCallCount == 1)
+
+    await service.invalidateCachedToken()
+
+    let credentials2 = try await service.getValidCopilotToken()
+    #expect(credentials2.token == "token-2")
+    #expect(httpClient.executeCallCount == 2)
+    #expect(logger.debugMessages.contains { $0.contains("Cached Copilot token invalidated") })
+}
+
+@Test func retryingOnUnauthorizedReturnsResultOnSuccess() async throws {
+    let authService = MockAuthService()
+    authService.credentials = CopilotCredentials(token: "valid-token", apiEndpoint: "https://api.github.com")
+    let initialCredentials = CopilotCredentials(token: "initial-token", apiEndpoint: "https://api.github.com")
+
+    let result = try await authService.retryingOnUnauthorized(credentials: initialCredentials) { creds -> String in
+        return "success-\(creds.token)"
+    }
+
+    #expect(result == "success-initial-token")
+    #expect(authService.invalidateCallCount == 0)
+    #expect(authService.getValidCopilotTokenCallCount == 0)
+}
+
+@Test func retryingOnUnauthorizedRetriesOnceOn401() async throws {
+    let authService = MockAuthService()
+    let freshCredentials = CopilotCredentials(token: "fresh-token", apiEndpoint: "https://api.github.com")
+    authService.credentials = freshCredentials
+    let initialCredentials = CopilotCredentials(token: "stale-token", apiEndpoint: "https://api.github.com")
+
+    let callCount = Mutex(0)
+    let result = try await authService.retryingOnUnauthorized(credentials: initialCredentials) { creds -> String in
+        let current = callCount.withLock { value -> Int in
+            value += 1
+            return value
+        }
+        if current == 1 {
+            throw CopilotAPIError.unauthorized
+        }
+        return "recovered-\(creds.token)"
+    }
+
+    #expect(result == "recovered-fresh-token")
+    #expect(callCount.withLock { $0 } == 2)
+    #expect(authService.invalidateCallCount == 1)
+    #expect(authService.getValidCopilotTokenCallCount == 1)
+}
+
+@Test func retryingOnUnauthorizedPropagatesUnauthorizedOnSecondFailure() async {
+    let authService = MockAuthService()
+    authService.credentials = CopilotCredentials(token: "also-stale", apiEndpoint: "https://api.github.com")
+    let initialCredentials = CopilotCredentials(token: "stale-token", apiEndpoint: "https://api.github.com")
+
+    do {
+        _ = try await authService.retryingOnUnauthorized(credentials: initialCredentials) { _ -> String in
+            throw CopilotAPIError.unauthorized
+        }
+        Issue.record("Expected CopilotAPIError.unauthorized to be thrown")
+    } catch let error as CopilotAPIError {
+        guard case .unauthorized = error else {
+            Issue.record("Expected .unauthorized, got \(error)")
+            return
+        }
+    } catch {
+        Issue.record("Unexpected error type: \(error)")
+    }
+
+    #expect(authService.invalidateCallCount == 1)
+}
+
+@Test func retryingOnUnauthorizedPropagatesNonUnauthorizedErrors() async {
+    let authService = MockAuthService()
+    let initialCredentials = CopilotCredentials(token: "token", apiEndpoint: "https://api.github.com")
+
+    do {
+        _ = try await authService.retryingOnUnauthorized(credentials: initialCredentials) { _ -> String in
+            throw CopilotAPIError.networkError("connection reset")
+        }
+        Issue.record("Expected CopilotAPIError.networkError to be thrown")
+    } catch let error as CopilotAPIError {
+        guard case .networkError(let message) = error else {
+            Issue.record("Expected .networkError, got \(error)")
+            return
+        }
+        #expect(message == "connection reset")
+    } catch {
+        Issue.record("Unexpected error type: \(error)")
+    }
+
+    #expect(authService.invalidateCallCount == 0)
+}

@@ -28,14 +28,8 @@ public enum CopilotAPIError: Error, CustomStringConvertible {
 
 public protocol CopilotAPIServiceProtocol: Sendable {
     func listModels(credentials: CopilotCredentials) async throws -> [CopilotModel]
-    func streamChatCompletions(
-        request: CopilotChatRequest,
-        credentials: CopilotCredentials
-    ) async throws -> AsyncThrowingStream<SSEEvent, Error>
-    func streamResponses(
-        request: ResponsesAPIRequest,
-        credentials: CopilotCredentials
-    ) async throws -> AsyncThrowingStream<SSEEvent, Error>
+    func streamChatCompletions(request: CopilotChatRequest, credentials: CopilotCredentials) async throws -> AsyncThrowingStream<SSEEvent, Error>
+    func streamResponses(request: ResponsesAPIRequest, credentials: CopilotCredentials) async throws -> AsyncThrowingStream<SSEEvent, Error>
 }
 
 public struct CopilotAPIService: CopilotAPIServiceProtocol {

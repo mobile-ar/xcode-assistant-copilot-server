@@ -29,9 +29,13 @@ public struct ModelsHandler: Sendable {
             )
         }
 
+        return await buildModelsResponse(credentials: credentials)
+    }
+
+    func buildModelsResponse(credentials: CopilotCredentials) async -> Response {
         let models: [CopilotModel]
         do {
-            models = try await copilotAPI.listModels(credentials: credentials)
+            models = try await fetchModelsWithRetry(credentials: credentials)
         } catch {
             logger.error("Failed to fetch models: \(error)")
             return ErrorResponseBuilder.build(
@@ -65,4 +69,9 @@ public struct ModelsHandler: Sendable {
         }
     }
 
+    private func fetchModelsWithRetry(credentials: CopilotCredentials) async throws -> [CopilotModel] {
+        try await authService.retryingOnUnauthorized(credentials: credentials) { newCredentials in
+            try await copilotAPI.listModels(credentials: newCredentials)
+        }
+    }
 }

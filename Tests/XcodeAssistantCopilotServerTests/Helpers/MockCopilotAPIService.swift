@@ -3,14 +3,23 @@ import Foundation
 
 final class MockCopilotAPIService: CopilotAPIServiceProtocol, @unchecked Sendable {
     var models: [CopilotModel] = []
+    var listModelsResults: [Result<[CopilotModel], Error>] = []
     var streamChatCompletionsResults: [Result<AsyncThrowingStream<SSEEvent, Error>, Error>] = []
     var streamResponsesResults: [Result<AsyncThrowingStream<SSEEvent, Error>, Error>] = []
+    private(set) var listModelsCallCount = 0
     private(set) var streamChatCompletionsCallCount = 0
     private(set) var streamResponsesCallCount = 0
     private(set) var capturedChatRequests: [CopilotChatRequest] = []
+    private(set) var capturedListModelsCredentials: [CopilotCredentials] = []
 
     func listModels(credentials: CopilotCredentials) async throws -> [CopilotModel] {
-        models
+        let index = listModelsCallCount
+        listModelsCallCount += 1
+        capturedListModelsCredentials.append(credentials)
+        if index < listModelsResults.count {
+            return try listModelsResults[index].get()
+        }
+        return models
     }
 
     func streamChatCompletions(

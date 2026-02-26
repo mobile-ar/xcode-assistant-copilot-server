@@ -36,6 +36,19 @@ public enum AuthServiceError: Error, CustomStringConvertible {
 public protocol AuthServiceProtocol: Sendable {
     func getGitHubToken() async throws -> String
     func getValidCopilotToken() async throws -> CopilotCredentials
+    func invalidateCachedToken() async
+}
+
+extension AuthServiceProtocol {
+    func retryingOnUnauthorized<T: Sendable>(credentials: CopilotCredentials, operation: @Sendable (CopilotCredentials) async throws -> T) async throws -> T {
+        do {
+            return try await operation(credentials)
+        } catch CopilotAPIError.unauthorized {
+            await invalidateCachedToken()
+            let newCredentials = try await getValidCopilotToken()
+            return try await operation(newCredentials)
+        }
+    }
 }
 
 public actor GitHubCLIAuthService: AuthServiceProtocol {
@@ -112,6 +125,11 @@ public actor GitHubCLIAuthService: AuthServiceProtocol {
             logger.info("Copilot token acquired via device flow (endpoint: \(copilotToken.apiEndpoint)), expires at \(copilotToken.expiresAt)")
             return CopilotCredentials(token: copilotToken.token, apiEndpoint: copilotToken.apiEndpoint)
         }
+    }
+
+    public func invalidateCachedToken() {
+        cachedToken = nil
+        logger.debug("Cached Copilot token invalidated")
     }
 
     private func exchangeForCopilotToken(githubToken: String) async throws -> CopilotToken {
