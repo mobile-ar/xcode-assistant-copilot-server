@@ -61,15 +61,8 @@ public struct CopilotAPIService: CopilotAPIServiceProtocol {
 
         try validateDataResponse(response)
 
-        let rawBody: String
-        if let jsonObject = try? JSONSerialization.jsonObject(with: response.data),
-           let prettyData = try? JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted, .sortedKeys]),
-           let prettyString = String(data: prettyData, encoding: .utf8) {
-            rawBody = prettyString
-        } else {
-            rawBody = String(data: response.data, encoding: .utf8) ?? "<non-UTF8 data, \(response.data.count) bytes>"
-        }
-        logger.debug("Copilot models raw response (\(response.data.count) bytes):\n\(rawBody)")
+        let responseBody = response.data.prettyPrintedJSON
+        logger.debug("Copilot models raw response (\(response.data.count) bytes):\n\(responseBody)")
 
         do {
             let modelsResponse = try JSONDecoder().decode(CopilotModelsResponse.self, from: response.data)
@@ -79,7 +72,7 @@ public struct CopilotAPIService: CopilotAPIServiceProtocol {
         } catch let decodingError as DecodingError {
             let detail = Self.decodingErrorDetail(decodingError)
             logger.error("Models decoding failed: \(detail)")
-            logger.error("Raw response body: \(rawBody)")
+            logger.error("Raw response body: \(responseBody)")
             throw CopilotAPIError.decodingFailed(detail)
         } catch {
             throw CopilotAPIError.decodingFailed(error.localizedDescription)
