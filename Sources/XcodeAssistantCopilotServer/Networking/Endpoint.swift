@@ -10,9 +10,7 @@ public protocol Endpoint: Sendable {
 }
 
 extension Endpoint {
-
     public var body: Data? { nil }
-
     public var timeoutInterval: TimeInterval { 60 }
 
     public func buildURLRequest() throws -> URLRequest {

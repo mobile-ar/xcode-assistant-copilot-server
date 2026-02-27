@@ -36,7 +36,7 @@ public struct ChatCompletionsHandler: Sendable {
         self.logger = logger
     }
 
-    public func handle(request: Request, context: some RequestContext) async throws -> Response {
+    public func handle(request: Request) async throws -> Response {
         let body = try await request.body.collect(upTo: configuration.bodyLimitBytes)
 
         let completionRequest: ChatCompletionRequest
@@ -181,7 +181,7 @@ public struct ChatCompletionsHandler: Sendable {
 
             let collectedResponse: CollectedResponse
             do {
-                collectedResponse = try await collectStreamedResponse(request: copilotRequest, credentials: credentials, model: model)
+                collectedResponse = try await collectStreamedResponse(request: copilotRequest, credentials: credentials)
             } catch {
                 logger.error("Agent loop failed at iteration \(iteration): \(error)")
                 return ErrorResponseBuilder.build(status: .internalServerError, type: "api_error", message: "Streaming failed: \(error)")
@@ -363,7 +363,7 @@ public struct ChatCompletionsHandler: Sendable {
         return Response(status: .ok, headers: sseHeaders(), body: .init(asyncSequence: responseStream))
     }
 
-    private func collectStreamedResponse(request: CopilotChatRequest, credentials: CopilotCredentials, model: String) async throws -> CollectedResponse {
+    private func collectStreamedResponse(request: CopilotChatRequest, credentials: CopilotCredentials) async throws -> CollectedResponse {
         let eventStream = try await streamForModel(copilotRequest: request, credentials: credentials)
 
         var content = ""

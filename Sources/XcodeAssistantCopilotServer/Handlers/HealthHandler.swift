@@ -28,7 +28,7 @@ public struct HealthHandler: Sendable {
         )
     }
 
-    public func handle(request: Request, context: some RequestContext) async throws -> Response {
+    public func handle() async throws -> Response {
         let healthResponse = buildHealthResponse()
 
         do {

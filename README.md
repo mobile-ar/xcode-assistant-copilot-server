@@ -18,9 +18,11 @@ Xcode  ──►  Local Server (localhost:8080)  ──►  GitHub Copilot API
 
 The server exposes the following OpenAI-compatible endpoints that Xcode connects to:
 
+- `GET /health` — Returns server health status, uptime, and MCP bridge status
 - `GET /v1/models` — Lists available Copilot models
 - `POST /v1/chat/completions` — Handles chat completions with streaming SSE
-- `POST /v1/responses` — Handles responses from models that support this API (Codex models)
+
+For models that only support the Responses API (e.g. Codex models), the server automatically detects this via the model's supported endpoints and internally translates chat completion requests into Responses API calls. The response is then adapted back into the chat completions SSE format, so Xcode always communicates using the same `/v1/chat/completions` endpoint.
 
 ## Authentication
 
@@ -206,6 +208,8 @@ An array of file path patterns to exclude from Xcode search results sent to Copi
 
 Controls the reasoning effort level for Copilot responses. Options: `low`, `medium`, `high`, `xhigh`. Defaults to `xhigh`.
 
+The server automatically retries with a lower reasoning effort if the model rejects the configured level, and caches the maximum supported level per model for subsequent requests.
+
 #### `autoApprovePermissions`
 
 Controls which permission types are automatically approved without prompting. Can be:
@@ -245,7 +249,8 @@ The server buffers Copilot's response. If tool calls target MCP tools, it execut
 ## Security
 
 - **Localhost only** — The server binds exclusively to `127.0.0.1` and is not accessible from other machines on the network.
-- **User-Agent filtering** — Only requests with a `Xcode/` user-agent are accepted. All other requests are rejected.
+- **User-Agent filtering** — Only requests with a `Xcode/` user-agent are accepted. All other requests are rejected (except the `/health` endpoint, which is exempt from this check).
+- **CORS middleware** — The server includes CORS headers (`Access-Control-Allow-Origin: *`) to handle preflight `OPTIONS` requests.
 - **Secure token storage** — The OAuth token from the device code flow is stored at `~/.config/xcode-assistant-copilot-server/github-token.json` with `0600` permissions (owner read/write only).
 - **In-memory Copilot tokens** — Short-lived Copilot JWT tokens are cached in memory only and automatically refreshed before expiry. They are never written to disk.
 
@@ -255,14 +260,16 @@ The server buffers Copilot's response. If tool calls target MCP tools, it execut
 Sources/
   XcodeAssistantCopilotServer/          # Library target
     Configuration/                      # Config model and loader
-    Handlers/                           # HTTP route handlers
-    Models/                             # Request/response models
-    Server/                             # Hummingbird server, middleware
-    Services/                           # Auth, Copilot API, MCP bridge, SSE
-    Utilities/                          # Logger, prompt formatter
+    Handlers/                           # HTTP route handlers (health, models, chat completions)
+    Models/                             # Request/response models, MCP messages, OAuth tokens
+    Networking/                         # HTTP client, endpoint protocol, request headers
+      Endpoints/                        # Concrete endpoint definitions (Copilot API, device flow, etc.)
+    Server/                             # Hummingbird server, route registry, middleware (CORS, logging, user-agent)
+    Services/                           # Auth, Copilot API, MCP bridge, device flow, SSE parser, signal handler
+    Utilities/                          # Logger, prompt formatter, error response builder, extensions
 
   xcode-assistant-copilot-server/       # Executable target
-    App.swift                           # CLI entry point
+    App.swift                           # CLI entry point (ArgumentParser)
 
 Tests/
   XcodeAssistantCopilotServerTests/     # Unit tests
@@ -310,6 +317,10 @@ gh auth login
 - MCP support requires **Xcode 26.3** or newer.
 - Make sure `xcrun mcpbridge` is available by running it manually in the terminal.
 - The server will continue without MCP support if the bridge fails to start.
+
+### Reasoning effort rejected by model
+
+If a model doesn't support the configured reasoning effort level, the server automatically retries with progressively lower levels (`xhigh` → `high` → `medium` → `low`). The maximum supported level is cached per model to avoid repeated retries. No action is needed — this is handled transparently.
 
 ## License
 
