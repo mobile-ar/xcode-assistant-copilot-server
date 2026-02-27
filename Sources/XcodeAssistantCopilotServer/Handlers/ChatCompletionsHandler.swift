@@ -524,23 +524,26 @@ public struct ChatCompletionsHandler: Sendable {
                 return try await executeStream(copilotRequest: currentRequest, credentials: credentials)
             } catch let error as CopilotAPIError {
                 guard case .requestFailed(statusCode: 400, let body) = error,
-                      let currentEffort = currentRequest.reasoningEffort,
-                      body.contains(currentEffort.rawValue) else {
+                      currentRequest.reasoningEffort != nil else {
                     throw error
                 }
 
+                let currentEffort = currentRequest.reasoningEffort!
+                logger.error("HTTP 400 with reasoning effort '\(currentEffort.rawValue)' for model '\(currentRequest.model)' (attempt \(attempt + 1)/\(Self.maxReasoningEffortRetries)). Error body: \(body)")
+
                 guard let lowerEffort = currentEffort.nextLower else {
-                    logger.warn("Reasoning effort '\(currentEffort.rawValue)' rejected and no lower level available, retrying without reasoning effort")
+                    logger.info("Reasoning effort '\(currentEffort.rawValue)' rejected and no lower level available, retrying without reasoning effort")
                     currentRequest = currentRequest.withReasoningEffort(nil)
                     continue
                 }
 
-                logger.info("Reasoning effort '\(currentEffort.rawValue)' not supported by model '\(currentRequest.model)', retrying with '\(lowerEffort.rawValue)' (attempt \(attempt + 1))")
+                logger.info("Downgrading reasoning effort from '\(currentEffort.rawValue)' to '\(lowerEffort.rawValue)' for model '\(currentRequest.model)'")
                 await reasoningEffortResolver.recordMaxEffort(lowerEffort, for: currentRequest.model)
                 currentRequest = currentRequest.withReasoningEffort(lowerEffort)
             }
         }
 
+        logger.info("Reasoning effort retries exhausted, sending final request with effort: \(currentRequest.reasoningEffort?.rawValue ?? "nil")")
         return try await executeStream(copilotRequest: currentRequest, credentials: credentials)
     }
 
@@ -555,9 +558,11 @@ public struct ChatCompletionsHandler: Sendable {
 
     private func executeStream(copilotRequest: CopilotChatRequest, credentials: CopilotCredentials) async throws -> AsyncThrowingStream<SSEEvent, Error> {
         let endpoint = await modelEndpointResolver.endpoint(for: copilotRequest.model, credentials: credentials)
+        logger.info("Resolved endpoint for model '\(copilotRequest.model)': \(endpoint == .responses ? "responses" : "chatCompletions"), reasoningEffort: \(copilotRequest.reasoningEffort?.rawValue ?? "nil")")
 
         switch endpoint {
         case .chatCompletions:
+            logger.info("Streaming via /chat/completions for model '\(copilotRequest.model)' to \(credentials.apiEndpoint)")
             return try await copilotAPI.streamChatCompletions(request: copilotRequest, credentials: credentials)
 
         case .responses:
@@ -573,7 +578,11 @@ public struct ChatCompletionsHandler: Sendable {
     }
 
     private func buildCopilotRequest(from request: ChatCompletionRequest) -> CopilotChatRequest {
-        CopilotChatRequest(
+        let tempStr = request.temperature.map { "\($0)" } ?? "nil"
+        let topPStr = request.topP.map { "\($0)" } ?? "nil"
+        let maxTokensStr = request.maxTokens.map { "\($0)" } ?? "nil"
+        logger.info("Building Copilot request: model=\(request.model), messages=\(request.messages.count), tools=\(request.tools?.count ?? 0), reasoningEffort=\(configuration.reasoningEffort?.rawValue ?? "nil"), temperature=\(tempStr), topP=\(topPStr), maxTokens=\(maxTokensStr)")
+        return CopilotChatRequest(
             model: request.model,
             messages: request.messages,
             temperature: request.temperature,

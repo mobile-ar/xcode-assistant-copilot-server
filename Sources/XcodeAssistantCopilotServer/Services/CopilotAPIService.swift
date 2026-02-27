@@ -84,7 +84,10 @@ public struct CopilotAPIService: CopilotAPIServiceProtocol {
             throw CopilotAPIError.streamingFailed("Failed to encode request body: \(error.localizedDescription)")
         }
 
-        logger.debug("Sending chat completion request for model: \(request.model) to \(credentials.apiEndpoint)")
+        logger.info("Sending chat completion request for model: \(request.model) to \(credentials.apiEndpoint)/chat/completions")
+        if let body = endpoint.body {
+            logger.info("Chat completions request body (\(body.count) bytes):\n\(body.prettyPrintedJSON)")
+        }
 
         let streamResponse: StreamResponse
         do {
@@ -114,7 +117,10 @@ public struct CopilotAPIService: CopilotAPIServiceProtocol {
             throw CopilotAPIError.streamingFailed("Failed to encode responses request body: \(error.localizedDescription)")
         }
 
-        logger.info("Sending responses API request for model: \(request.model) to \(credentials.apiEndpoint)")
+        logger.info("Sending responses API request for model: \(request.model) to \(credentials.apiEndpoint)/responses")
+        if let body = endpoint.body {
+            logger.info("Responses API request body (\(body.count) bytes):\n\(body.prettyPrintedJSON)")
+        }
 
         let streamResponse: StreamResponse
         do {
@@ -175,7 +181,11 @@ public struct CopilotAPIService: CopilotAPIServiceProtocol {
         }
 
         if case .errorBody(let body) = response.content {
-            logger.error("Copilot API error response (HTTP \(response.statusCode)): \(body)")
+            logger.error("Copilot API error response (HTTP \(response.statusCode)), body length=\(body.count) chars")
+            logger.error("Copilot API error body: \(body)")
+            if let data = body.data(using: .utf8) {
+                logger.error("Copilot API error body (pretty-printed):\n\(data.prettyPrintedJSON)")
+            }
             throw CopilotAPIError.requestFailed(statusCode: response.statusCode, body: body)
         }
     }

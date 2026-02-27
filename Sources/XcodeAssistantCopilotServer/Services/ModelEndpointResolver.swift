@@ -25,13 +25,21 @@ public actor ModelEndpointResolver: ModelEndpointResolverProtocol {
         await refreshCacheIfNeeded(credentials: credentials)
 
         guard let endpoints = cachedEndpoints?[modelId] else {
+            logger.info("Model '\(modelId)' not found in endpoint cache (\(cachedEndpoints?.count ?? 0) cached model(s)), defaulting to chatCompletions")
+            if let cached = cachedEndpoints {
+                logger.debug("Cached model IDs: \(cached.keys.sorted().joined(separator: ", "))")
+            }
             return .chatCompletions
         }
 
+        logger.info("Model '\(modelId)' supported endpoints: \(endpoints.joined(separator: ", "))")
+
         if endpoints.contains("/responses") && !endpoints.contains("/chat/completions") {
+            logger.info("Resolved endpoint for '\(modelId)': responses (responses-only model)")
             return .responses
         }
 
+        logger.info("Resolved endpoint for '\(modelId)': chatCompletions")
         return .chatCompletions
     }
 

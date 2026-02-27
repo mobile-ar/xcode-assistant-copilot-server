@@ -709,3 +709,187 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
     #expect(copilotAPI.streamChatCompletionsCallCount >= 2)
 }
 
+@Test func reasoningEffortRetryOnGeneric400DowngradesEffort() async {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.tools = []
+
+    let copilotAPI = MockCopilotAPIService()
+    copilotAPI.streamChatCompletionsResults = [
+        .failure(CopilotAPIError.requestFailed(statusCode: 400, body: "Bad Request")),
+        .success(MockCopilotAPIService.makeContentStream(content: "Success after retry"))
+    ]
+
+    let reasoningResolver = MockReasoningEffortResolver()
+    let logger = MockLogger()
+    let config = ServerConfiguration(reasoningEffort: .xhigh)
+    let handler = makeHandler(
+        copilotAPI: copilotAPI,
+        mcpBridge: mcpBridge,
+        reasoningEffortResolver: reasoningResolver,
+        configuration: config,
+        logger: logger
+    )
+
+    let response = await handler.handleAgentStreaming(
+        request: makeRequest(),
+        credentials: makeCredentials()
+    )
+
+    #expect(response.status == HTTPResponse.Status.ok)
+    #expect(copilotAPI.streamChatCompletionsCallCount == 2)
+    #expect(copilotAPI.capturedChatRequests[1].reasoningEffort == .high)
+    #expect(reasoningResolver.recordedMaxEfforts.contains { $0.effort == .high })
+    #expect(logger.errorMessages.contains { $0.contains("HTTP 400") && $0.contains("xhigh") })
+    #expect(logger.infoMessages.contains { $0.contains("Downgrading reasoning effort") })
+}
+
+@Test func reasoningEffortRetryDowngradesThroughMultipleLevels() async {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.tools = []
+
+    let copilotAPI = MockCopilotAPIService()
+    copilotAPI.streamChatCompletionsResults = [
+        .failure(CopilotAPIError.requestFailed(statusCode: 400, body: "Bad Request")),
+        .failure(CopilotAPIError.requestFailed(statusCode: 400, body: "Bad Request")),
+        .success(MockCopilotAPIService.makeContentStream(content: "Success after two downgrades"))
+    ]
+
+    let reasoningResolver = MockReasoningEffortResolver()
+    let logger = MockLogger()
+    let config = ServerConfiguration(reasoningEffort: .xhigh)
+    let handler = makeHandler(
+        copilotAPI: copilotAPI,
+        mcpBridge: mcpBridge,
+        reasoningEffortResolver: reasoningResolver,
+        configuration: config,
+        logger: logger
+    )
+
+    let response = await handler.handleAgentStreaming(
+        request: makeRequest(),
+        credentials: makeCredentials()
+    )
+
+    #expect(response.status == HTTPResponse.Status.ok)
+    #expect(copilotAPI.streamChatCompletionsCallCount == 3)
+    #expect(copilotAPI.capturedChatRequests[1].reasoningEffort == .high)
+    #expect(copilotAPI.capturedChatRequests[2].reasoningEffort == .medium)
+}
+
+@Test func reasoningEffortRetryRemovesEffortWhenAtLowestLevel() async {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.tools = []
+
+    let copilotAPI = MockCopilotAPIService()
+    copilotAPI.streamChatCompletionsResults = [
+        .failure(CopilotAPIError.requestFailed(statusCode: 400, body: "Bad Request")),
+        .success(MockCopilotAPIService.makeContentStream(content: "Success without reasoning"))
+    ]
+
+    let reasoningResolver = MockReasoningEffortResolver()
+    let logger = MockLogger()
+    let config = ServerConfiguration(reasoningEffort: .low)
+    let handler = makeHandler(
+        copilotAPI: copilotAPI,
+        mcpBridge: mcpBridge,
+        reasoningEffortResolver: reasoningResolver,
+        configuration: config,
+        logger: logger
+    )
+
+    let response = await handler.handleAgentStreaming(
+        request: makeRequest(),
+        credentials: makeCredentials()
+    )
+
+    #expect(response.status == HTTPResponse.Status.ok)
+    #expect(copilotAPI.streamChatCompletionsCallCount == 2)
+    #expect(copilotAPI.capturedChatRequests[1].reasoningEffort == nil)
+    #expect(logger.infoMessages.contains { $0.contains("no lower level available") })
+}
+
+@Test func reasoningEffortRetryDoesNotRetryNon400Errors() async {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.tools = []
+
+    let copilotAPI = MockCopilotAPIService()
+    copilotAPI.streamChatCompletionsResults = [
+        .failure(CopilotAPIError.requestFailed(statusCode: 500, body: "Internal Server Error"))
+    ]
+
+    let logger = MockLogger()
+    let config = ServerConfiguration(reasoningEffort: .xhigh)
+    let handler = makeHandler(
+        copilotAPI: copilotAPI,
+        mcpBridge: mcpBridge,
+        configuration: config,
+        logger: logger
+    )
+
+    let response = await handler.handleAgentStreaming(
+        request: makeRequest(),
+        credentials: makeCredentials()
+    )
+
+    #expect(response.status == HTTPResponse.Status.internalServerError)
+    #expect(copilotAPI.streamChatCompletionsCallCount == 1)
+}
+
+@Test func reasoningEffortRetryDoesNotRetryWhenEffortIsNil() async {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.tools = []
+
+    let copilotAPI = MockCopilotAPIService()
+    copilotAPI.streamChatCompletionsResults = [
+        .failure(CopilotAPIError.requestFailed(statusCode: 400, body: "Bad Request"))
+    ]
+
+    let logger = MockLogger()
+    let config = ServerConfiguration(reasoningEffort: nil)
+    let handler = makeHandler(
+        copilotAPI: copilotAPI,
+        mcpBridge: mcpBridge,
+        configuration: config,
+        logger: logger
+    )
+
+    let response = await handler.handleAgentStreaming(
+        request: makeRequest(),
+        credentials: makeCredentials()
+    )
+
+    #expect(response.status == HTTPResponse.Status.internalServerError)
+    #expect(copilotAPI.streamChatCompletionsCallCount == 1)
+}
+
+@Test func reasoningEffortRetryLogsErrorBodyOn400() async {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.tools = []
+
+    let copilotAPI = MockCopilotAPIService()
+    let detailedErrorBody = "{\"error\":{\"message\":\"reasoning_effort is not supported\",\"type\":\"invalid_request_error\"}}"
+    copilotAPI.streamChatCompletionsResults = [
+        .failure(CopilotAPIError.requestFailed(statusCode: 400, body: detailedErrorBody)),
+        .success(MockCopilotAPIService.makeContentStream(content: "OK"))
+    ]
+
+    let logger = MockLogger()
+    let config = ServerConfiguration(reasoningEffort: .high)
+    let handler = makeHandler(
+        copilotAPI: copilotAPI,
+        mcpBridge: mcpBridge,
+        configuration: config,
+        logger: logger
+    )
+
+    let response = await handler.handleAgentStreaming(
+        request: makeRequest(),
+        credentials: makeCredentials()
+    )
+
+    #expect(response.status == HTTPResponse.Status.ok)
+    #expect(copilotAPI.streamChatCompletionsCallCount == 2)
+    #expect(logger.errorMessages.contains { $0.contains(detailedErrorBody) })
+    #expect(copilotAPI.capturedChatRequests[1].reasoningEffort == .medium)
+}
+
