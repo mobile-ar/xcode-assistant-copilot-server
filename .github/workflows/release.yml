@@ -28,6 +28,11 @@ jobs:
       - name: Get swift version
         run: swift --version
 
+      - name: Inject version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "let appVersion = \"${VERSION}\"" > Sources/xcode-assistant-copilot-server/Version.generated.swift
+
       - name: Build (debug)
         run: swift build
 
@@ -58,6 +63,11 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Extracted version: ${VERSION} from tag: ${TAG}"
+
+      - name: Inject version from tag
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          echo "let appVersion = \"${VERSION}\"" > Sources/xcode-assistant-copilot-server/Version.generated.swift
 
       - name: Build release binary
         run: swift build -c release
