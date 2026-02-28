@@ -14,6 +14,9 @@ class XcodeAssistantCopilotServer < Formula
   depends_on macos: :tahoe
 
   def install
+    (buildpath/"Sources/xcode-assistant-copilot-server/Version.generated.swift").atomic_write(
+      "let appVersion = \"#{version}\"\n",
+    )
     system "swift", "build",
            "--disable-sandbox",
            "-c", "release",
