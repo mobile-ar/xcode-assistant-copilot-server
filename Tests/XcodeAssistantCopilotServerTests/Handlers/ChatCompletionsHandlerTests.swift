@@ -464,10 +464,10 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(mcpBridge.calledTools.count == 1)
     #expect(logger.warnMessages.contains { $0.contains("rm") && $0.contains("blocked") })
-    #expect(logger.infoMessages.contains { $0.contains("All CLI tool calls blocked, continuing agent loop") })
+    #expect(logger.infoMessages.contains { $0.contains("MCP tool(s) executed and CLI tool calls blocked, continuing agent loop") })
 }
 
-@Test func agentStreamingMCPToolExecutedAndStreamsFinalResponse() async {
+@Test func agentStreamingMCPToolExecutedAndContinuesLoopForFinalResponse() async {
     let mcpBridge = MockMCPBridgeService()
     mcpBridge.tools = [MCPTool(name: "search")]
     mcpBridge.callResults = ["search": MCPToolResult(content: [MCPToolResultContent(type: "text", text: "found results")])]
@@ -498,7 +498,9 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
 
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(mcpBridge.calledTools.count == 1)
-    #expect(logger.infoMessages.contains { $0.contains("MCP tool(s) executed, streaming final response") })
+    #expect(copilotAPI.streamChatCompletionsCallCount == 2)
+    #expect(logger.infoMessages.contains { $0.contains("MCP tool(s) executed, continuing agent loop") })
+    #expect(logger.infoMessages.contains { $0.contains("Agent loop completed") && $0.contains("streaming buffered response") })
 }
 
 @Test func agentStreamingMCPPermissionDeniedFeedsErrorToModel() async {
@@ -891,5 +893,267 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
     #expect(copilotAPI.streamChatCompletionsCallCount == 2)
     #expect(logger.errorMessages.contains { $0.contains(detailedErrorBody) })
     #expect(copilotAPI.capturedChatRequests[1].reasoningEffort == .medium)
+}
+
+@Test func normalizeEventDataAddsObjectFieldWhenMissing() {
+    let handler = makeHandler()
+    let input = #"{"choices":[{"index":0,"delta":{"content":"Hello","role":"assistant"}}],"created":1772507025,"id":"msg_abc","model":"claude-haiku-4.5"}"#
+
+    let result = handler.normalizeEventData(input)
+
+    let data = result.data(using: .utf8)!
+    let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+    #expect(json["object"] as? String == "chat.completion.chunk")
+    #expect(json["id"] as? String == "msg_abc")
+    #expect(json["model"] as? String == "claude-haiku-4.5")
+}
+
+@Test func normalizeEventDataPreservesExistingObjectField() {
+    let handler = makeHandler()
+    let input = #"{"choices":[],"created":1234567890,"id":"chatcmpl-123","model":"gpt-4","object":"chat.completion.chunk"}"#
+
+    let result = handler.normalizeEventData(input)
+
+    let data = result.data(using: .utf8)!
+    let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+    #expect(json["object"] as? String == "chat.completion.chunk")
+}
+
+@Test func normalizeEventDataReturnsOriginalForInvalidJSON() {
+    let handler = makeHandler()
+    let input = "not valid json"
+
+    let result = handler.normalizeEventData(input)
+
+    #expect(result == input)
+}
+
+@Test func normalizeEventDataHandlesDoneSignal() {
+    let handler = makeHandler()
+    let input = "[DONE]"
+
+    let result = handler.normalizeEventData(input)
+
+    #expect(result == "[DONE]")
+}
+
+@Test func normalizeEventDataPreservesAllExistingFields() {
+    let handler = makeHandler()
+    let input = #"{"choices":[{"index":0,"delta":{"content":null,"tool_calls":[{"function":{"name":"XcodeUpdate"},"id":"toolu_abc","index":1,"type":"function"}]},"finish_reason":null}],"created":1772507629,"id":"msg_xyz","model":"claude-sonnet-4.5"}"#
+
+    let result = handler.normalizeEventData(input)
+
+    let data = result.data(using: .utf8)!
+    let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+    #expect(json["object"] as? String == "chat.completion.chunk")
+    #expect(json["id"] as? String == "msg_xyz")
+    #expect(json["model"] as? String == "claude-sonnet-4.5")
+    #expect((json["choices"] as? [[String: Any]])?.count == 1)
+
+    let choice = (json["choices"] as! [[String: Any]])[0]
+    let delta = choice["delta"] as! [String: Any]
+    let toolCall = (delta["tool_calls"] as! [[String: Any]])[0]
+    let function = toolCall["function"] as! [String: Any]
+    #expect(function["arguments"] as? String == "")
+}
+
+@Test func normalizeEventDataAddsEmptyArgumentsWhenMissingFromToolCallFunction() {
+    let handler = makeHandler()
+    let input = #"{"model":"claude-sonnet-4.5","id":"msg_vrtx_01","created":1772509504,"object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":null,"tool_calls":[{"id":"toolu_vrtx_01","function":{"name":"BuildProject"},"type":"function","index":0}]}}]}"#
+
+    let result = handler.normalizeEventData(input)
+
+    let data = result.data(using: .utf8)!
+    let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+    let choice = (json["choices"] as! [[String: Any]])[0]
+    let delta = choice["delta"] as! [String: Any]
+    let toolCall = (delta["tool_calls"] as! [[String: Any]])[0]
+    let function = toolCall["function"] as! [String: Any]
+    #expect(function["arguments"] as? String == "")
+    #expect(function["name"] as? String == "BuildProject")
+}
+
+@Test func normalizeEventDataPreservesExistingArgumentsInToolCallFunction() {
+    let handler = makeHandler()
+    let input = #"{"model":"claude-sonnet-4.5","id":"msg_001","created":1234567890,"object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"id":"call_1","function":{"name":"XcodeGrep","arguments":"{\"pattern\":"},"type":"function","index":0}]}}]}"#
+
+    let result = handler.normalizeEventData(input)
+
+    let data = result.data(using: .utf8)!
+    let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+    let choice = (json["choices"] as! [[String: Any]])[0]
+    let delta = choice["delta"] as! [String: Any]
+    let toolCall = (delta["tool_calls"] as! [[String: Any]])[0]
+    let function = toolCall["function"] as! [String: Any]
+    #expect(function["arguments"] as? String == "{\"pattern\":")
+}
+
+@Test func normalizeEventDataHandlesMultipleToolCallsInSingleChunk() {
+    let handler = makeHandler()
+    let input = #"{"model":"claude-sonnet-4.5","id":"msg_002","created":1234567890,"object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"id":"call_1","function":{"name":"ToolA"},"type":"function","index":0},{"id":"call_2","function":{"name":"ToolB","arguments":"{}"},"type":"function","index":1}]}}]}"#
+
+    let result = handler.normalizeEventData(input)
+
+    let data = result.data(using: .utf8)!
+    let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+    let choice = (json["choices"] as! [[String: Any]])[0]
+    let delta = choice["delta"] as! [String: Any]
+    let toolCalls = delta["tool_calls"] as! [[String: Any]]
+    #expect(toolCalls.count == 2)
+    let func0 = toolCalls[0]["function"] as! [String: Any]
+    let func1 = toolCalls[1]["function"] as! [String: Any]
+    #expect(func0["arguments"] as? String == "")
+    #expect(func1["arguments"] as? String == "{}")
+}
+
+@Test func normalizeEventDataDoesNotModifyChunksWithoutToolCalls() {
+    let handler = makeHandler()
+    let input = #"{"choices":[{"index":0,"delta":{"content":"Hello","role":"assistant"}}],"created":1234567890,"id":"msg_003","model":"gpt-4"}"#
+
+    let result = handler.normalizeEventData(input)
+
+    let data = result.data(using: .utf8)!
+    let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+    let choice = (json["choices"] as! [[String: Any]])[0]
+    let delta = choice["delta"] as! [String: Any]
+    #expect(delta["content"] as? String == "Hello")
+    #expect(delta["tool_calls"] == nil)
+}
+
+@Test func executeMCPToolRetriesWithResolvedTabIdentifierWhenBridgeReturnsTabError() async {
+    let tabError = """
+    Error: Valid tabIdentifier required. Choose from the following open windows:
+    * tabIdentifier: windowtab1, workspacePath: /Users/dev/Projects/Sumatron2/Sumatron2.xcodeproj
+    * tabIdentifier: windowtab2, workspacePath: /Users/dev/Projects/spark-app-ios/Spark.xcworkspace
+    """
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.sequentialCallResults["XcodeUpdate"] = [
+        MCPToolResult(content: [MCPToolResultContent(type: "text", text: tabError)], isError: false),
+        MCPToolResult(content: [MCPToolResultContent(type: "text", text: "File updated successfully")], isError: false),
+    ]
+
+    let logger = MockLogger()
+    let config = ServerConfiguration(
+        mcpServers: ["xcode": MCPServerConfiguration(type: .local, command: "xcrun", allowedTools: ["*"])],
+        autoApprovePermissions: .all(true)
+    )
+    let handler = makeHandler(mcpBridge: mcpBridge, configuration: config, logger: logger)
+    let toolCall = makeToolCall(
+        name: "XcodeUpdate",
+        arguments: #"{"tabIdentifier":"UserSummaryView.swift","filePath":"Sumatron2/Screens/Profile/UserSummaryView.swift","oldString":"old","newString":"new"}"#
+    )
+
+    let result = await handler.executeMCPTool(toolCall: toolCall)
+
+    #expect(result == "File updated successfully")
+    #expect(mcpBridge.calledTools.count == 2)
+    #expect(mcpBridge.calledTools[1].arguments["tabIdentifier"]?.stringValue == "windowtab1")
+    #expect(logger.debugMessages.contains { $0.contains("retrying with resolved") && $0.contains("windowtab1") })
+}
+
+@Test func executeMCPToolRetriesAndSelectsCorrectTabByFilePath() async {
+    let tabError = """
+    Error: Valid tabIdentifier required. Choose from the following open windows:
+    * tabIdentifier: windowtab1, workspacePath: /Users/dev/Projects/Sumatron2/Sumatron2.xcodeproj
+    * tabIdentifier: windowtab2, workspacePath: /Users/dev/Projects/spark-app-ios/Spark.xcworkspace
+    """
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.sequentialCallResults["XcodeRead"] = [
+        MCPToolResult(content: [MCPToolResultContent(type: "text", text: tabError)], isError: false),
+        MCPToolResult(content: [MCPToolResultContent(type: "text", text: "file contents")], isError: false),
+    ]
+
+    let config = ServerConfiguration(
+        mcpServers: ["xcode": MCPServerConfiguration(type: .local, command: "xcrun", allowedTools: ["*"])],
+        autoApprovePermissions: .all(true)
+    )
+    let handler = makeHandler(mcpBridge: mcpBridge, configuration: config)
+    let toolCall = makeToolCall(
+        name: "XcodeRead",
+        arguments: #"{"tabIdentifier":"HomeView.swift","filePath":"spark-app-ios/Spark/Views/HomeView.swift"}"#
+    )
+
+    let result = await handler.executeMCPTool(toolCall: toolCall)
+
+    #expect(result == "file contents")
+    #expect(mcpBridge.calledTools.count == 2)
+    #expect(mcpBridge.calledTools[1].arguments["tabIdentifier"]?.stringValue == "windowtab2")
+}
+
+@Test func executeMCPToolReturnsFallbackTabWhenFilePathDoesNotMatchAnyWorkspace() async {
+    let tabError = """
+    Error: Valid tabIdentifier required. Choose from the following open windows:
+    * tabIdentifier: windowtab1, workspacePath: /Users/dev/Projects/Sumatron2/Sumatron2.xcodeproj
+    """
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.sequentialCallResults["XcodeGrep"] = [
+        MCPToolResult(content: [MCPToolResultContent(type: "text", text: tabError)], isError: false),
+        MCPToolResult(content: [MCPToolResultContent(type: "text", text: "grep results")], isError: false),
+    ]
+
+    let config = ServerConfiguration(
+        mcpServers: ["xcode": MCPServerConfiguration(type: .local, command: "xcrun", allowedTools: ["*"])],
+        autoApprovePermissions: .all(true)
+    )
+    let handler = makeHandler(mcpBridge: mcpBridge, configuration: config)
+    let toolCall = makeToolCall(
+        name: "XcodeGrep",
+        arguments: #"{"tabIdentifier":"someFile.swift","filePath":"OtherProject/SomeFile.swift","pattern":"foo"}"#
+    )
+
+    let result = await handler.executeMCPTool(toolCall: toolCall)
+
+    #expect(result == "grep results")
+    #expect(mcpBridge.calledTools.count == 2)
+    #expect(mcpBridge.calledTools[1].arguments["tabIdentifier"]?.stringValue == "windowtab1")
+}
+
+@Test func executeMCPToolDoesNotRetryWhenErrorTextHasNoWindowEntries() async {
+    let tabErrorNoWindows = "Error: Valid tabIdentifier required. No windows open."
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.callResults["XcodeUpdate"] = MCPToolResult(
+        content: [MCPToolResultContent(type: "text", text: tabErrorNoWindows)],
+        isError: false
+    )
+
+    let config = ServerConfiguration(
+        mcpServers: ["xcode": MCPServerConfiguration(type: .local, command: "xcrun", allowedTools: ["*"])],
+        autoApprovePermissions: .all(true)
+    )
+    let handler = makeHandler(mcpBridge: mcpBridge, configuration: config)
+    let toolCall = makeToolCall(name: "XcodeUpdate", arguments: #"{"tabIdentifier":"foo","filePath":"Foo/Bar.swift","oldString":"a","newString":"b"}"#)
+
+    let result = await handler.executeMCPTool(toolCall: toolCall)
+
+    #expect(result == tabErrorNoWindows)
+    #expect(mcpBridge.calledTools.count == 1)
+}
+
+@Test func executeMCPToolUsesSourceFilePathWhenFilePathAbsent() async {
+    let tabError = """
+    Error: Valid tabIdentifier required. Choose from the following open windows:
+    * tabIdentifier: windowtab1, workspacePath: /Users/dev/Projects/MyApp/MyApp.xcodeproj
+    """
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.sequentialCallResults["ExecuteSnippet"] = [
+        MCPToolResult(content: [MCPToolResultContent(type: "text", text: tabError)], isError: false),
+        MCPToolResult(content: [MCPToolResultContent(type: "text", text: "snippet output")], isError: false),
+    ]
+
+    let config = ServerConfiguration(
+        mcpServers: ["xcode": MCPServerConfiguration(type: .local, command: "xcrun", allowedTools: ["*"])],
+        autoApprovePermissions: .all(true)
+    )
+    let handler = makeHandler(mcpBridge: mcpBridge, configuration: config)
+    let toolCall = makeToolCall(
+        name: "ExecuteSnippet",
+        arguments: #"{"tabIdentifier":"bad","sourceFilePath":"MyApp/Sources/Main.swift","codeSnippet":"print(1)"}"#
+    )
+
+    let result = await handler.executeMCPTool(toolCall: toolCall)
+
+    #expect(result == "snippet output")
+    #expect(mcpBridge.calledTools.count == 2)
+    #expect(mcpBridge.calledTools[1].arguments["tabIdentifier"]?.stringValue == "windowtab1")
 }
 

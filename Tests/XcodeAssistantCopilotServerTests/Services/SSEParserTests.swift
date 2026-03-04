@@ -474,11 +474,13 @@ import Testing
         collected.append(event)
     }
 
-    #expect(collected.count == 2)
+    #expect(collected.count == 3)
     #expect(collected[0].event == "first")
-    #expect(collected[0].data == "line1\nline2")
-    #expect(collected[1].event == "second")
-    #expect(collected[1].data == "single")
+    #expect(collected[0].data == "line1")
+    #expect(collected[1].event == "first")
+    #expect(collected[1].data == "line2")
+    #expect(collected[2].event == "second")
+    #expect(collected[2].data == "single")
 }
 
 @Test func sseParserNoBlankLineSeparatorWithLargePayloads() async throws {
@@ -599,7 +601,9 @@ import Testing
         collected.append(event)
     }
 
-    #expect(collected.count == 1)
-    #expect(collected[0].data == "{\"type\":\"response.created\"}\n{\"type\":\"response.completed\"}")
+    #expect(collected.count == 2)
+    #expect(collected[0].data == "{\"type\":\"response.created\"}")
     #expect(collected[0].event == nil)
+    #expect(collected[1].data == "{\"type\":\"response.completed\"}")
+    #expect(collected[1].event == nil)
 }

@@ -2,6 +2,52 @@ import Foundation
 import Testing
 @testable import XcodeAssistantCopilotServer
 
+@Test func chunkDecodesWithoutObjectField() throws {
+    let json = """
+    {"choices":[{"index":0,"delta":{"content":"Hello","role":"assistant"}}],"created":1772505395,"id":"msg_01CPxga2wL4DMtEp32WWJEu6","model":"claude-haiku-4.5"}
+    """
+    let data = json.data(using: .utf8)!
+    let chunk = try JSONDecoder().decode(ChatCompletionChunk.self, from: data)
+    #expect(chunk.id == "msg_01CPxga2wL4DMtEp32WWJEu6")
+    #expect(chunk.model == "claude-haiku-4.5")
+    #expect(chunk.object == nil)
+    #expect(chunk.choices.count == 1)
+    #expect(chunk.choices[0].delta?.content == "Hello")
+}
+
+@Test func chunkDecodesToolCallWithoutArguments() throws {
+    let json = """
+    {"choices":[{"index":0,"delta":{"content":null,"tool_calls":[{"function":{"name":"XcodeUpdate"},"id":"toolu_01GSAzoWazKvFFPEA7Gue9sd","index":1,"type":"function"}]}}],"created":1772505395,"id":"msg_01CPxga2wL4DMtEp32WWJEu6","model":"claude-haiku-4.5"}
+    """
+    let data = json.data(using: .utf8)!
+    let chunk = try JSONDecoder().decode(ChatCompletionChunk.self, from: data)
+    #expect(chunk.id == "msg_01CPxga2wL4DMtEp32WWJEu6")
+    let toolCall = chunk.choices[0].delta?.toolCalls?.first
+    #expect(toolCall?.function.name == "XcodeUpdate")
+    #expect(toolCall?.function.arguments == nil)
+}
+
+@Test func chunkDecodesToolCallWithoutName() throws {
+    let json = #"{"choices":[{"index":0,"delta":{"content":null,"tool_calls":[{"function":{"arguments":"{\"key\":\"value\"}"},"index":1}]}}],"created":1772505395,"id":"msg_01CPxga2wL4DMtEp32WWJEu6","model":"claude-haiku-4.5"}"#
+    let data = json.data(using: .utf8)!
+    let chunk = try JSONDecoder().decode(ChatCompletionChunk.self, from: data)
+    let toolCall = chunk.choices[0].delta?.toolCalls?.first
+    #expect(toolCall?.function.name == nil)
+    #expect(toolCall?.function.arguments == #"{"key":"value"}"#)
+}
+
+@Test func toolCallFunctionInitWithDefaults() {
+    let function = ToolCallFunction()
+    #expect(function.name == nil)
+    #expect(function.arguments == nil)
+}
+
+@Test func toolCallFunctionInitWithValues() {
+    let function = ToolCallFunction(name: "myTool", arguments: "{}")
+    #expect(function.name == "myTool")
+    #expect(function.arguments == "{}")
+}
+
 @Test func currentTimestampReturnsReasonableValue() {
     let before = Int(Date.now.timeIntervalSince1970)
     let timestamp = ChatCompletionChunk.currentTimestamp()

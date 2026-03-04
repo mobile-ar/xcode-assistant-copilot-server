@@ -273,7 +273,7 @@ public actor MCPBridgeService: MCPBridgeServiceProtocol {
             }
 
             stdinPipe?.fileHandleForWriting.write(writeData)
-            logger.debug("Sent MCP request #\(requestId): \(method) payload: \(messageData.prefix(1000))")
+            logger.debug("Sent MCP request #\(requestId): \(method) payload: \(messageData)")
         }
     }
 

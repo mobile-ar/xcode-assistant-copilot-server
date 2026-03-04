@@ -2,7 +2,7 @@ import Foundation
 
 public struct ChatCompletionChunk: Codable, Sendable {
     public let id: String
-    public let object: String
+    public let object: String?
     public let created: Int
     public let model: String
     public let choices: [ChunkChoice]
@@ -19,7 +19,7 @@ public struct ChatCompletionChunk: Codable, Sendable {
 
     public init(
         id: String,
-        object: String = "chat.completion.chunk",
+        object: String? = "chat.completion.chunk",
         created: Int = ChatCompletionChunk.currentTimestamp(),
         model: String,
         choices: [ChunkChoice],

@@ -42,8 +42,8 @@ public struct ResponsesAPITranslator: Sendable {
                         inputItems.append(.functionCall(ResponsesFunctionCall(
                             id: itemId,
                             callId: callId,
-                            name: tc.function.name,
-                            arguments: tc.function.arguments
+                            name: tc.function.name ?? "",
+                            arguments: tc.function.arguments ?? ""
                         )))
                     }
                 } else {
@@ -126,6 +126,15 @@ public struct ResponsesAPITranslator: Sendable {
                         } else if let fallback = ResponsesEventType.fromDataType(event.data) {
                             logger.debug("adaptStream: resolved event type from data payload: \(fallback.rawValue)")
                             eventType = fallback
+                        } else if let chunk = try? event.decodeData(ChatCompletionChunk.self) {
+                            logger.debug("adaptStream: received chat-completion-style chunk from /responses endpoint, passing through (choices=\(chunk.choices.count))")
+                            emittedChunkCount += 1
+                            continuation.yield(event)
+                            if chunk.choices.first?.finishReason != nil {
+                                logger.info("adaptStream: chat-completion-style finish chunk received, ending stream")
+                                break
+                            }
+                            continue
                         } else {
                             logger.debug("adaptStream: skipping event with unrecognized type: \(event.event ?? "nil"), data preview: \(dataPreview)")
                             continue

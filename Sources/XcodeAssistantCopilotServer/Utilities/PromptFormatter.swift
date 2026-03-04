@@ -45,7 +45,7 @@ public struct PromptFormatter: Sendable {
                 if let toolCalls = message.toolCalls {
                     for toolCall in toolCalls {
                         parts.append(
-                            "[Assistant called tool \(toolCall.function.name) with args: \(toolCall.function.arguments)]"
+                            "[Assistant called tool \(toolCall.function.name ?? "") with args: \(toolCall.function.arguments ?? "")]"
                         )
                     }
                 }

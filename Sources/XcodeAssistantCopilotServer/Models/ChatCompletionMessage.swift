@@ -50,12 +50,23 @@ public enum MessageContent: Codable, Sendable {
 }
 
 public struct ToolCallFunction: Codable, Sendable {
-    public let name: String
-    public let arguments: String
+    public let name: String?
+    public let arguments: String?
 
-    public init(name: String, arguments: String) {
+    public init(name: String? = nil, arguments: String? = nil) {
         self.name = name
         self.arguments = arguments
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(name, forKey: .name)
+        try container.encode(arguments ?? "", forKey: .arguments)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case arguments
     }
 }
 

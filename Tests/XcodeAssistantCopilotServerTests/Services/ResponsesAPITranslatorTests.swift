@@ -1446,7 +1446,7 @@ import Foundation
     #expect(headerTC?.function.name == "get_weather")
 
     let argsChunks = chunks.filter { chunk in
-        chunk.choices.first?.delta?.toolCalls?.first?.function.arguments.isEmpty == false
+        chunk.choices.first?.delta?.toolCalls?.first?.function.arguments?.isEmpty == false
     }
     let combinedArgs = argsChunks.compactMap { $0.choices.first?.delta?.toolCalls?.first?.function.arguments }.joined()
     #expect(combinedArgs == "{\"city\":\"NYC\"}")
@@ -1506,4 +1506,84 @@ import Foundation
 
     let hasDecodingWarning = logger.warnMessages.contains { $0.contains("failed to decode outputTextDelta") }
     #expect(hasDecodingWarning)
+}
+
+@Test func adaptStreamPassesThroughChatCompletionStyleChunks() async throws {
+    let translator = ResponsesAPITranslator(logger: MockLogger())
+
+    let contentChunk = """
+    {"choices":[{"index":0,"delta":{"content":"Hello","role":"assistant"}}],"created":1772506699,"id":"msg_01TgKJGdQSxW1NSdjCVeVt1s","model":"claude-haiku-4.5"}
+    """
+    let toolCallChunk = """
+    {"choices":[{"index":0,"delta":{"content":null,"tool_calls":[{"function":{"name":"MyTool"},"id":"toolu_abc","index":1,"type":"function"}]}}],"created":1772506699,"id":"msg_01TgKJGdQSxW1NSdjCVeVt1s","model":"claude-haiku-4.5"}
+    """
+    let finishChunk = """
+    {"choices":[{"finish_reason":"tool_calls","index":0,"delta":{"content":null}}],"created":1772506699,"id":"msg_01TgKJGdQSxW1NSdjCVeVt1s","model":"claude-haiku-4.5"}
+    """
+
+    let events = AsyncThrowingStream<SSEEvent, Error> { continuation in
+        continuation.yield(SSEEvent(data: contentChunk))
+        continuation.yield(SSEEvent(data: toolCallChunk))
+        continuation.yield(SSEEvent(data: finishChunk))
+        continuation.finish()
+    }
+
+    let adapted = translator.adaptStream(
+        events: events,
+        completionId: "chatcmpl-test",
+        model: "claude-haiku-4.5"
+    )
+
+    var chunks: [ChatCompletionChunk] = []
+    for try await event in adapted {
+        if event.isDone { break }
+        if let chunk = try? event.decodeData(ChatCompletionChunk.self) {
+            chunks.append(chunk)
+        }
+    }
+
+    #expect(chunks.count == 3)
+    #expect(chunks[0].choices.first?.delta?.content == "Hello")
+    #expect(chunks[1].choices.first?.delta?.toolCalls?.first?.function.name == "MyTool")
+    #expect(chunks[2].choices.first?.finishReason == "tool_calls")
+}
+
+@Test func adaptStreamPassesThroughChatCompletionChunksWithoutObjectField() async throws {
+    let translator = ResponsesAPITranslator(logger: MockLogger())
+
+    let chunk1 = """
+    {"choices":[{"index":0,"delta":{"content":"I'll help","role":"assistant"}}],"created":1772506699,"id":"msg_abc","model":"claude-haiku-4.5"}
+    """
+    let chunk2 = """
+    {"choices":[{"index":0,"delta":{"content":" you.","role":"assistant"}}],"created":1772506699,"id":"msg_abc","model":"claude-haiku-4.5"}
+    """
+    let doneChunk = """
+    {"choices":[{"finish_reason":"stop","index":0,"delta":{"content":null}}],"created":1772506699,"id":"msg_abc","model":"claude-haiku-4.5"}
+    """
+
+    let events = AsyncThrowingStream<SSEEvent, Error> { continuation in
+        continuation.yield(SSEEvent(data: chunk1))
+        continuation.yield(SSEEvent(data: chunk2))
+        continuation.yield(SSEEvent(data: doneChunk))
+        continuation.finish()
+    }
+
+    let adapted = translator.adaptStream(
+        events: events,
+        completionId: "chatcmpl-test",
+        model: "claude-haiku-4.5"
+    )
+
+    var chunks: [ChatCompletionChunk] = []
+    for try await event in adapted {
+        if event.isDone { break }
+        if let chunk = try? event.decodeData(ChatCompletionChunk.self) {
+            chunks.append(chunk)
+        }
+    }
+
+    #expect(chunks.count == 3)
+    #expect(chunks[0].choices.first?.delta?.content == "I'll help")
+    #expect(chunks[1].choices.first?.delta?.content == " you.")
+    #expect(chunks[2].choices.first?.finishReason == "stop")
 }

@@ -8,6 +8,13 @@ extension AnyCodable {
         return nil
     }
 
+    var stringValue: String? {
+        if case .string(let value) = self.value {
+            return value
+        }
+        return nil
+    }
+
     init(fromAny value: Any) {
         switch value {
         case let string as String:

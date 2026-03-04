@@ -53,7 +53,6 @@ public struct SSEParser: Sendable {
             let task = Task {
                 var currentEvent: String?
                 var currentId: String?
-                var dataLines: [String] = []
 
                 do {
                     for try await line in lines {
@@ -63,52 +62,25 @@ public struct SSEParser: Sendable {
                         }
 
                         if line.isEmpty {
-                            if !dataLines.isEmpty {
-                                let data = dataLines.joined(separator: "\n")
-                                let event = SSEEvent(
-                                    data: data,
-                                    event: currentEvent,
-                                    id: currentId
-                                )
-                                continuation.yield(event)
-                                dataLines.removeAll()
-                                currentEvent = nil
-                                currentId = nil
-                            }
                             continue
                         }
 
                         if line.hasPrefix("data:") {
                             let value = extractFieldValue(from: line, prefix: "data:")
-                            dataLines.append(value)
+                            guard !value.isEmpty else { continue }
+                            let event = SSEEvent(
+                                data: value,
+                                event: currentEvent,
+                                id: currentId
+                            )
+                            continuation.yield(event)
                         } else if line.hasPrefix("event:") {
-                            if !dataLines.isEmpty {
-                                let data = dataLines.joined(separator: "\n")
-                                let event = SSEEvent(data: data, event: currentEvent,id: currentId)
-                                continuation.yield(event)
-                                dataLines.removeAll()
-                                currentId = nil
-                            }
                             currentEvent = extractFieldValue(from: line, prefix: "event:")
                         } else if line.hasPrefix("id:") {
-                            if !dataLines.isEmpty {
-                                let data = dataLines.joined(separator: "\n")
-                                let event = SSEEvent(data: data, event: currentEvent, id: currentId)
-                                continuation.yield(event)
-                                dataLines.removeAll()
-                                currentEvent = nil
-                                currentId = nil
-                            }
                             currentId = extractFieldValue(from: line, prefix: "id:")
                         } else if line.hasPrefix(":") {
                             continue
                         }
-                    }
-
-                    if !dataLines.isEmpty {
-                        let data = dataLines.joined(separator: "\n")
-                        let event = SSEEvent(data: data, event: currentEvent, id: currentId)
-                        continuation.yield(event)
                     }
 
                     continuation.finish()

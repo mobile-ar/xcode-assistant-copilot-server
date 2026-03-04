@@ -111,9 +111,9 @@ public struct ChatCompletionsHandler: Sendable {
 
                                     forwardedEventCount += 1
                                     if forwardedEventCount <= 3 || forwardedEventCount % 50 == 0 {
-                                        logger.debug("Direct stream: forwarding event #\(forwardedEventCount), data length=\(event.data.count), preview=\(event.data.prefix(150))")
+                                        logger.debug("Direct stream: forwarding event #\(forwardedEventCount), data length=\(event.data.count), preview=\(event.data.prefix(1500))")
                                     }
-                                    let sseData = "data: \(event.data)\n\n"
+                                    let sseData = "data: \(normalizeEventData(event.data))\n\n"
                                     let buffer = ByteBuffer(string: sseData)
                                     continuation.yield(buffer)
                                 }
@@ -191,12 +191,12 @@ public struct ChatCompletionsHandler: Sendable {
             let responseContent = collectedResponse.content
 
             if !responseToolCalls.isEmpty {
-                let mcpCalls = responseToolCalls.filter { mcpToolNames.contains($0.function.name) }
-                let otherCalls = responseToolCalls.filter { !mcpToolNames.contains($0.function.name) }
+                let mcpCalls = responseToolCalls.filter { mcpToolNames.contains($0.function.name ?? "") }
+                let otherCalls = responseToolCalls.filter { !mcpToolNames.contains($0.function.name ?? "") }
 
                 let shellApproved = configuration.autoApprovePermissions.isApproved(.shell)
-                let allowedCliCalls = otherCalls.filter { shellApproved && configuration.isCliToolAllowed($0.function.name) }
-                let blockedCliCalls = otherCalls.filter { !shellApproved || !configuration.isCliToolAllowed($0.function.name) }
+                let allowedCliCalls = otherCalls.filter { shellApproved && configuration.isCliToolAllowed($0.function.name ?? "") }
+                let blockedCliCalls = otherCalls.filter { !shellApproved || !configuration.isCliToolAllowed($0.function.name ?? "") }
 
                 let hasServerSideWork = !mcpCalls.isEmpty || !blockedCliCalls.isEmpty
 
@@ -226,8 +226,8 @@ public struct ChatCompletionsHandler: Sendable {
                     }
 
                     for blocked in blockedCliCalls {
-                        let reason = shellApproved ? "Tool '\(blocked.function.name)' is not in the allowed CLI tools list." : "Shell tool execution is not approved. Add 'shell' to autoApprovePermissions."
-                        logger.warn("CLI tool '\(blocked.function.name)' blocked: \(reason)")
+                        let reason = shellApproved ? "Tool '\(blocked.function.name ?? "")' is not in the allowed CLI tools list." : "Shell tool execution is not approved. Add 'shell' to autoApprovePermissions."
+                        logger.warn("CLI tool '\(blocked.function.name ?? "")' blocked: \(reason)")
                         let toolMessage = ChatCompletionMessage(
                             role: .tool,
                             content: .text("Error: \(reason)"),
@@ -246,19 +246,14 @@ public struct ChatCompletionsHandler: Sendable {
                         )
                     }
 
-                    if !blockedCliCalls.isEmpty {
+                    if !blockedCliCalls.isEmpty && mcpCalls.isEmpty {
                         logger.info("All CLI tool calls blocked, continuing agent loop")
-                        continue
+                    } else if !blockedCliCalls.isEmpty {
+                        logger.info("MCP tool(s) executed and CLI tool calls blocked, continuing agent loop")
+                    } else {
+                        logger.info("MCP tool(s) executed, continuing agent loop")
                     }
-
-                    logger.info("MCP tool(s) executed, streaming final response directly")
-                    return await streamFinalAgentResponse(
-                        request: request,
-                        credentials: credentials,
-                        messages: messages,
-                        model: model,
-                        allTools: allTools
-                    )
+                    continue
                 } else {
                     logger.info("Agent loop completed after \(iteration) iteration(s), streaming buffered response with tool calls")
                     return buildBufferedStreamingResponse(
@@ -288,80 +283,7 @@ public struct ChatCompletionsHandler: Sendable {
         )
     }
 
-    private func streamFinalAgentResponse(
-        request: ChatCompletionRequest,
-        credentials: CopilotCredentials,
-        messages: [ChatCompletionMessage],
-        model: String,
-        allTools: [Tool]
-    ) async -> Response {
-        let copilotRequest = CopilotChatRequest(
-            model: model,
-            messages: messages,
-            temperature: request.temperature,
-            topP: request.topP,
-            maxTokens: request.maxTokens,
-            stop: request.stop,
-            tools: allTools.isEmpty ? nil : allTools,
-            toolChoice: request.toolChoice,
-            reasoningEffort: configuration.reasoningEffort,
-            stream: true
-        )
 
-        let eventStream: AsyncThrowingStream<SSEEvent, Error>
-        do {
-            eventStream = try await streamForModelWithRetry(copilotRequest: copilotRequest, credentials: credentials)
-        } catch {
-            logger.error("Copilot API streaming failed for final agent response: \(error)")
-            return ErrorResponseBuilder.build(status: .internalServerError, type: "api_error", message: "Failed to start streaming: \(error)")
-        }
-
-        logger.info("Streaming final agent response directly")
-
-        let responseStream = AsyncStream<ByteBuffer> { continuation in
-            Task {
-                do {
-                    try await withThrowingTaskGroup(of: Void.self) { group in
-                        group.addTask {
-                            try await Task.sleep(for: .seconds(Self.requestTimeoutSeconds))
-                            throw ChatCompletionsHandlerError.timeout
-                        }
-
-                        group.addTask { [logger] in
-                            do {
-                                for try await event in eventStream {
-                                    if Task.isCancelled { break }
-
-                                    if event.isDone {
-                                        let doneBuffer = ByteBuffer(string: "data: [DONE]\n\n")
-                                        continuation.yield(doneBuffer)
-                                        break
-                                    }
-
-                                    let sseData = "data: \(event.data)\n\n"
-                                    let buffer = ByteBuffer(string: sseData)
-                                    continuation.yield(buffer)
-                                }
-                            } catch {
-                                logger.error("Stream error: \(error)")
-                            }
-                            continuation.finish()
-                        }
-
-                        try await group.next()
-                        group.cancelAll()
-                    }
-                } catch {
-                    if error is ChatCompletionsHandlerError {
-                        logger.warn("Stream timed out after \(Self.requestTimeoutSeconds) seconds")
-                    }
-                    continuation.finish()
-                }
-            }
-        }
-
-        return Response(status: .ok, headers: sseHeaders(), body: .init(asyncSequence: responseStream))
-    }
 
     private func collectStreamedResponse(request: CopilotChatRequest, credentials: CopilotCredentials) async throws -> CollectedResponse {
         let eventStream = try await streamForModel(copilotRequest: request, credentials: credentials)
@@ -377,7 +299,7 @@ public struct ChatCompletionsHandler: Sendable {
             do {
                 chunk = try event.decodeData(ChatCompletionChunk.self)
             } catch {
-                logger.debug("Failed to decode chunk: \(event.data)")
+                logger.debug("Failed to decode chunk (\(error)): \(event.data)")
                 continue
             }
 
@@ -406,10 +328,13 @@ public struct ChatCompletionsHandler: Sendable {
 
         for (_, builder) in toolCallBuilders.sorted(by: { $0.key < $1.key }) {
             if let toolCall = builder.build() {
+                let argsLength = toolCall.function.arguments?.count ?? 0
+                logger.debug("collectStreamedResponse: built tool call '\(toolCall.function.name ?? "")' id=\(toolCall.id ?? "nil") argsLength=\(argsLength)")
                 toolCalls.append(toolCall)
             }
         }
 
+        logger.debug("collectStreamedResponse: finished — content=\(content.count) chars, toolCalls=\(toolCalls.count), builders=\(toolCallBuilders.count)")
         return CollectedResponse(content: content, toolCalls: toolCalls)
     }
 
@@ -418,33 +343,56 @@ public struct ChatCompletionsHandler: Sendable {
             return "Error: MCP bridge not available"
         }
 
+        let toolName = toolCall.function.name ?? ""
+
         guard configuration.autoApprovePermissions.isApproved(.mcp) else {
-            logger.warn("MCP tool execution not approved for '\(toolCall.function.name)'")
+            logger.warn("MCP tool execution not approved for '\(toolName)'")
             return "Error: MCP tool execution is not approved. Add 'mcp' to autoApprovePermissions."
         }
 
-        guard configuration.isMCPToolAllowed(toolCall.function.name) else {
-            logger.warn("MCP tool '\(toolCall.function.name)' is not in the allowed tools list")
-            return "Error: MCP tool '\(toolCall.function.name)' is not allowed by server configuration"
+        guard configuration.isMCPToolAllowed(toolName) else {
+            logger.warn("MCP tool '\(toolName)' is not in the allowed tools list")
+            return "Error: MCP tool '\(toolName)' is not allowed by server configuration"
         }
 
         let arguments: [String: AnyCodable]
-        if let data = toolCall.function.arguments.data(using: .utf8),
-           let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            arguments = parsed.compactMapValues { AnyCodable(fromAny: $0) }
+        if let argumentsString = toolCall.function.arguments {
+            logger.debug("MCP tool '\(toolName)' raw arguments (\(argumentsString.count) chars): \(argumentsString)")
+            if let data = argumentsString.data(using: .utf8),
+               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                arguments = parsed.compactMapValues { AnyCodable(fromAny: $0) }
+                logger.debug("MCP tool '\(toolName)' parsed \(arguments.count) argument(s): \(arguments.keys.sorted().joined(separator: ", "))")
+            } else {
+                logger.error("MCP tool '\(toolName)' failed to parse arguments JSON (\(argumentsString.count) chars) — sending empty arguments")
+                arguments = [:]
+            }
         } else {
+            logger.debug("MCP tool '\(toolName)' has no arguments")
             arguments = [:]
         }
 
         do {
-            let result = try await mcpBridge.callTool(
-                name: toolCall.function.name,
-                arguments: arguments
-            )
-            return result.textContent
+            let result = try await mcpBridge.callTool(name: toolName, arguments: arguments)
+            let text = result.textContent
+
+            if TabIdentifierResolver.isTabIdentifierError(text) {
+                let filePath = arguments["filePath"]?.stringValue
+                    ?? arguments["sourceFilePath"]?.stringValue
+                    ?? arguments["path"]?.stringValue
+
+                if let resolvedTab = TabIdentifierResolver.resolve(from: text, filePath: filePath) {
+                    logger.debug("MCP tool '\(toolName)' got invalid tabIdentifier — retrying with resolved '\(resolvedTab)'")
+                    var fixedArguments = arguments
+                    fixedArguments["tabIdentifier"] = AnyCodable(.string(resolvedTab))
+                    let retryResult = try await mcpBridge.callTool(name: toolName, arguments: fixedArguments)
+                    return retryResult.textContent
+                }
+            }
+
+            return text
         } catch {
-            logger.error("MCP tool \(toolCall.function.name) failed: \(error)")
-            return "Error executing tool \(toolCall.function.name): \(error)"
+            logger.error("MCP tool \(toolName) failed: \(error)")
+            return "Error executing tool \(toolName): \(error)"
         }
     }
 
@@ -596,6 +544,40 @@ public struct ChatCompletionsHandler: Sendable {
         )
     }
 
+    func normalizeEventData(_ data: String) -> String {
+        guard let jsonData = data.data(using: .utf8),
+              var json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+            return data
+        }
+        if json["object"] == nil {
+            json["object"] = "chat.completion.chunk"
+        }
+        if let choices = json["choices"] as? [[String: Any]] {
+            json["choices"] = choices.map { choice -> [String: Any] in
+                var choice = choice
+                if var delta = choice["delta"] as? [String: Any],
+                   let toolCalls = delta["tool_calls"] as? [[String: Any]] {
+                    delta["tool_calls"] = toolCalls.map { toolCall -> [String: Any] in
+                        var toolCall = toolCall
+                        if var function = toolCall["function"] as? [String: Any],
+                           function["arguments"] == nil {
+                            function["arguments"] = ""
+                            toolCall["function"] = function
+                        }
+                        return toolCall
+                    }
+                    choice["delta"] = delta
+                }
+                return choice
+            }
+        }
+        guard let normalized = try? JSONSerialization.data(withJSONObject: json),
+              let result = String(data: normalized, encoding: .utf8) else {
+            return data
+        }
+        return result
+    }
+
     private func sseHeaders() -> HTTPFields {
         var headers = HTTPFields()
         headers[.contentType] = "text/event-stream"
@@ -632,8 +614,8 @@ private final class ToolCallBuilder {
         if let deltaIndex = delta.index {
             index = deltaIndex
         }
-        functionName += delta.function.name
-        functionArguments += delta.function.arguments
+        functionName += delta.function.name ?? ""
+        functionArguments += delta.function.arguments ?? ""
     }
 
     func build() -> ToolCall? {
