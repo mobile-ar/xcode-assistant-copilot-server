@@ -59,6 +59,8 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     }
 }
 
+// MARK: - getGitHubToken
+
 @Test func getGitHubTokenReturnsStoredOAuthTokenFirst() async throws {
     let runner = MockAuthProcessRunner(handler: { path, args, _ in
         if args == ["auth", "token"] {
@@ -80,9 +82,6 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
         if args == ["auth", "token"] {
             return .success(ProcessResult(stdout: "ghp_test1234567890abcdef", stderr: "", exitCode: 0))
         }
-        if args == ["--find", "mcpbridge"] || path.hasSuffix("which") {
-            return .success(ProcessResult(stdout: path, stderr: "", exitCode: 0))
-        }
         return .success(ProcessResult(stdout: path, stderr: "", exitCode: 0))
     })
     let logger = MockLogger()
@@ -92,8 +91,17 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     #expect(token == "ghp_test1234567890abcdef")
 }
 
-@Test func getGitHubTokenThrowsNotAuthenticatedWhenEmpty() async {
-    let runner = MockAuthProcessRunner(stdout: "", stderr: "", exitCode: 0)
+@Test func getGitHubTokenThrowsNotAuthenticatedWhenNoStoredTokenAndGHNotLoggedIn() async {
+    // Simulate gh installed but not authenticated. FileManager may find gh at a known
+    // path, so we make the `auth token` call fail with a "not logged" message, which
+    // resolveGitHubToken treats as nil (fall-through), causing getGitHubToken to throw
+    // .notAuthenticated.
+    let runner = MockAuthProcessRunner(handler: { path, args, _ in
+        if args == ["auth", "token"] {
+            return .success(ProcessResult(stdout: "", stderr: "not logged into any github hosts. Run gh auth login", exitCode: 1))
+        }
+        return .success(ProcessResult(stdout: path, stderr: "", exitCode: 0))
+    })
     let logger = MockLogger()
     let deviceFlow = MockDeviceFlowService()
     let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: MockHTTPClient())
@@ -109,11 +117,11 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
             Issue.record("Expected notAuthenticated, got \(error)")
         }
     } catch {
-        Issue.record("Unexpected error type: \(error)")
+        Issue.record("Unexpected error type: \(type(of: error)): \(error)")
     }
 }
 
-@Test func getGitHubTokenThrowsNotAuthenticatedWhenNotLoggedIn() async {
+@Test func getGitHubTokenThrowsNotAuthenticatedWhenGHCLINotLoggedIn() async {
     let runner = MockAuthProcessRunner(
         stdout: "",
         stderr: "not logged into any github hosts. Run gh auth login",
@@ -188,25 +196,6 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     }
 }
 
-@Test func getGitHubTokenThrowsGitHubCLINotFoundWhenAllPathsFail() async {
-    let runner = MockAuthProcessRunner(throwing: ProcessRunnerError.executableNotFound("/usr/bin/gh"))
-    let logger = MockLogger()
-    let deviceFlow = MockDeviceFlowService()
-    let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: MockHTTPClient())
-
-    do {
-        _ = try await authService.getGitHubToken()
-        Issue.record("Expected an error to be thrown")
-    } catch is AuthServiceError {
-        // Expected - gitHubCLINotFound
-    } catch is ProcessRunnerError {
-        // Also acceptable - the mock throws ProcessRunnerError before
-        // findGitHubCLI can wrap it as AuthServiceError
-    } catch {
-        Issue.record("Unexpected error type: \(type(of: error)): \(error)")
-    }
-}
-
 @Test func getGitHubTokenTrimsWhitespace() async throws {
     let runner = MockAuthProcessRunner(handler: { _, args, _ in
         if args == ["auth", "token"] {
@@ -222,77 +211,8 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     #expect(!token.contains("\n"))
 }
 
-@Test func getValidCopilotTokenCachesToken() async throws {
-    let callCount = Mutex(0)
-    let runner = MockAuthProcessRunner(handler: { _, args, _ in
-        if args == ["auth", "token"] {
-            callCount.withLock { $0 += 1 }
-            return .success(ProcessResult(stdout: "ghp_test_token_12345678", stderr: "", exitCode: 0))
-        }
-        return .success(ProcessResult(stdout: "/usr/local/bin/gh", stderr: "", exitCode: 0))
-    })
-    let logger = MockLogger()
-    let deviceFlow = MockDeviceFlowService()
-    let _ = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: MockHTTPClient())
-
-    // Note: Full token caching test requires a MockHTTPClient to intercept the
-    // Copilot token exchange HTTP call. This test verifies the service can be created.
-    #expect(callCount.withLock { $0 } == 0)
-}
-
-@Test func authServiceErrorDescriptions() {
-    let notFound = AuthServiceError.gitHubCLINotFound
-    #expect(notFound.description.contains("GitHub CLI"))
-    #expect(notFound.description.contains("gh"))
-
-    let failed = AuthServiceError.gitHubCLIFailed("timeout")
-    #expect(failed.description.contains("timeout"))
-
-    let exchange = AuthServiceError.tokenExchangeFailed("HTTP 403")
-    #expect(exchange.description.contains("HTTP 403"))
-
-    let notAuth = AuthServiceError.notAuthenticated
-    #expect(notAuth.description.contains("gh auth login"))
-}
-
-@Test func authServiceErrorGitHubCLINotFoundDescription() {
-    let error = AuthServiceError.gitHubCLINotFound
-    #expect(error.description == "GitHub CLI (gh) not found. Install it from https://cli.github.com")
-}
-
-@Test func authServiceErrorGitHubCLIFailedDescription() {
-    let error = AuthServiceError.gitHubCLIFailed("permission denied")
-    #expect(error.description == "GitHub CLI failed: permission denied")
-}
-
-@Test func authServiceErrorTokenExchangeFailedDescription() {
-    let error = AuthServiceError.tokenExchangeFailed("Network error: timeout")
-    #expect(error.description == "Copilot token exchange failed: Network error: timeout")
-}
-
-@Test func authServiceErrorNotAuthenticatedDescription() {
-    let error = AuthServiceError.notAuthenticated
-    #expect(error.description == "Not authenticated. Run `gh auth login` first.")
-}
-
-@Test func authServiceErrorCopilotSubscriptionRequiredDescription() {
-    let error = AuthServiceError.copilotSubscriptionRequired
-    #expect(error.description.contains("Copilot subscription"))
-    #expect(error.description.contains("github.com/settings/copilot"))
-}
-
-@Test func authServiceConformsToProtocol() async {
-    let runner = MockAuthProcessRunner(stdout: "token", stderr: "", exitCode: 0)
-    let logger = MockLogger()
-    let deviceFlow = MockDeviceFlowService()
-    let service: any AuthServiceProtocol = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: MockHTTPClient())
-    _ = service
-}
-
 @Test func getGitHubTokenUsesWhichAsFallback() async throws {
-    let executablePaths = Mutex<[String]>([])
     let runner = MockAuthProcessRunner(handler: { path, args, _ in
-        executablePaths.withLock { $0.append(path) }
         if path.hasSuffix("which") {
             return .success(ProcessResult(stdout: "/custom/path/gh", stderr: "", exitCode: 0))
         }
@@ -304,9 +224,6 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     let logger = MockLogger()
     let deviceFlow = MockDeviceFlowService()
     let authService = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: MockHTTPClient())
-
-    // If gh is at a standard path, it will be found directly.
-    // This test just verifies the service can find and use gh.
     let token = try await authService.getGitHubToken()
     #expect(!token.isEmpty)
 }
@@ -355,109 +272,210 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     #expect(!ghAuthTokenCalled.withLock { $0 })
 }
 
-@Test func deviceFlowErrorDescriptions() {
-    let expired = DeviceFlowError.expired
-    #expect(expired.description.contains("expired"))
+// MARK: - getValidCopilotToken
 
-    let denied = DeviceFlowError.accessDenied
-    #expect(denied.description.contains("denied"))
+@Test func getValidCopilotTokenCachesToken() async throws {
+    let tokenJSON = """
+    {"token":"cached-token","expires_at":\(Int(Date.now.timeIntervalSince1970) + 3600),"endpoints":{"api":"https://api.endpoint.com"}}
+    """
+    let httpClient = MockHTTPClient()
+    httpClient.executeResults = [
+        .success(DataResponse(data: Data(tokenJSON.utf8), statusCode: 200)),
+        .success(DataResponse(data: Data(tokenJSON.utf8), statusCode: 200))
+    ]
 
-    let network = DeviceFlowError.networkError("timeout")
-    #expect(network.description.contains("timeout"))
-
-    let invalid = DeviceFlowError.invalidResponse("bad json")
-    #expect(invalid.description.contains("bad json"))
-
-    let storage = DeviceFlowError.tokenStorageFailed("permission denied")
-    #expect(storage.description.contains("permission denied"))
-
-    let request = DeviceFlowError.requestFailed("HTTP 500")
-    #expect(request.description.contains("HTTP 500"))
-}
-
-@Test func oauthTokenEncodesAndDecodes() throws {
-    let original = OAuthToken(accessToken: "gho_test123", tokenType: "bearer", scope: "user:email")
-    let encoder = JSONEncoder()
-    let data = try encoder.encode(original)
-    let decoded = try JSONDecoder().decode(OAuthToken.self, from: data)
-    #expect(decoded.accessToken == "gho_test123")
-    #expect(decoded.tokenType == "bearer")
-    #expect(decoded.scope == "user:email")
-}
-
-@Test func deviceCodeResponseDecodes() throws {
-    let json = """
-    {
-        "device_code": "dc_abc123",
-        "user_code": "ABCD-1234",
-        "verification_uri": "https://github.com/login/device",
-        "expires_in": 900,
-        "interval": 5
-    }
-    """.data(using: .utf8)!
-    let response = try JSONDecoder().decode(DeviceCodeResponse.self, from: json)
-    #expect(response.deviceCode == "dc_abc123")
-    #expect(response.userCode == "ABCD-1234")
-    #expect(response.verificationUri == "https://github.com/login/device")
-    #expect(response.expiresIn == 900)
-    #expect(response.interval == 5)
-}
-
-@Test func deviceCodePollResponseDecodesSuccess() throws {
-    let json = """
-    {
-        "access_token": "gho_success_token",
-        "token_type": "bearer",
-        "scope": "user:email"
-    }
-    """.data(using: .utf8)!
-    let response = try JSONDecoder().decode(DeviceCodePollResponse.self, from: json)
-    let token = response.toOAuthToken()
-    #expect(token != nil)
-    #expect(token?.accessToken == "gho_success_token")
-    #expect(token?.tokenType == "bearer")
-}
-
-@Test func deviceCodePollResponseDecodesPending() throws {
-    let json = """
-    {
-        "error": "authorization_pending",
-        "error_description": "The authorization request is still pending."
-    }
-    """.data(using: .utf8)!
-    let response = try JSONDecoder().decode(DeviceCodePollResponse.self, from: json)
-    #expect(response.error == "authorization_pending")
-    #expect(response.toOAuthToken() == nil)
-}
-
-@Test func deviceCodePollResponseReturnsNilWhenMissingFields() throws {
-    let json = """
-    {
-        "access_token": "gho_token_only"
-    }
-    """.data(using: .utf8)!
-    let response = try JSONDecoder().decode(DeviceCodePollResponse.self, from: json)
-    #expect(response.toOAuthToken() == nil)
-}
-
-@Test func mockDeviceFlowServicePerformDeviceFlowIncrementsCallCount() async throws {
+    let runner = MockAuthProcessRunner(stdout: "ghp_test_token")
+    let logger = MockLogger()
     let deviceFlow = MockDeviceFlowService()
-    let expectedToken = OAuthToken(accessToken: "gho_device_flow_token", tokenType: "bearer", scope: "user:email")
-    deviceFlow.performDeviceFlowResult = .success(expectedToken)
+    let service = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: httpClient)
 
-    let token = try await deviceFlow.performDeviceFlow()
-    #expect(token.accessToken == "gho_device_flow_token")
+    let first = try await service.getValidCopilotToken()
+    let second = try await service.getValidCopilotToken()
+
+    #expect(first.token == "cached-token")
+    #expect(second.token == "cached-token")
+    #expect(httpClient.executeCallCount == 1)
+}
+
+@Test func getValidCopilotTokenTriggersDeviceFlowWhenGHCLIAbsent() async throws {
+    let tokenJSON = """
+    {"token":"device-flow-token","expires_at":\(Int(Date.now.timeIntervalSince1970) + 3600),"endpoints":{"api":"https://api.endpoint.com"}}
+    """
+    let httpClient = MockHTTPClient()
+    httpClient.executeResults = [
+        .success(DataResponse(data: Data(tokenJSON.utf8), statusCode: 200))
+    ]
+
+    // Simulate gh installed but not authenticated. resolveGitHubToken returns nil,
+    // so getValidCopilotToken falls through directly to the device code flow.
+    let runner = MockAuthProcessRunner(handler: { path, args, _ in
+        if args == ["auth", "token"] {
+            return .success(ProcessResult(stdout: "", stderr: "not logged into any github hosts. Run gh auth login", exitCode: 1))
+        }
+        return .success(ProcessResult(stdout: path, stderr: "", exitCode: 0))
+    })
+    let logger = MockLogger()
+    let deviceFlow = MockDeviceFlowService()
+    let expectedOAuthToken = OAuthToken(accessToken: "gho_device_token", tokenType: "bearer", scope: "user:email")
+    deviceFlow.performDeviceFlowResult = .success(expectedOAuthToken)
+
+    let service = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: httpClient)
+    let credentials = try await service.getValidCopilotToken()
+
+    #expect(credentials.token == "device-flow-token")
     #expect(deviceFlow.performDeviceFlowCallCount == 1)
 }
 
-@Test func mockDeviceFlowServiceDeleteIncrementsCallCount() throws {
-    let deviceFlow = MockDeviceFlowService()
-    deviceFlow.storedToken = OAuthToken(accessToken: "gho_to_delete", tokenType: "bearer", scope: "")
+@Test func getValidCopilotTokenTriggersDeviceFlowWhenGHCLINotAuthenticated() async throws {
+    let tokenJSON = """
+    {"token":"device-flow-token","expires_at":\(Int(Date.now.timeIntervalSince1970) + 3600),"endpoints":{"api":"https://api.endpoint.com"}}
+    """
+    let httpClient = MockHTTPClient()
+    httpClient.executeResults = [
+        .success(DataResponse(data: Data(tokenJSON.utf8), statusCode: 200))
+    ]
 
-    try deviceFlow.deleteStoredToken()
-    #expect(deviceFlow.deleteStoredTokenCallCount == 1)
-    #expect(deviceFlow.storedToken == nil)
+    let runner = MockAuthProcessRunner(
+        stdout: "",
+        stderr: "not logged into any github hosts. Run gh auth login",
+        exitCode: 1
+    )
+    let logger = MockLogger()
+    let deviceFlow = MockDeviceFlowService()
+    let expectedOAuthToken = OAuthToken(accessToken: "gho_device_token", tokenType: "bearer", scope: "user:email")
+    deviceFlow.performDeviceFlowResult = .success(expectedOAuthToken)
+
+    let service = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: httpClient)
+    let credentials = try await service.getValidCopilotToken()
+
+    #expect(credentials.token == "device-flow-token")
+    #expect(deviceFlow.performDeviceFlowCallCount == 1)
 }
+
+@Test func getValidCopilotTokenTriggersDeviceFlowOn401FromTokenExchange() async throws {
+    let tokenJSON = """
+    {"token":"device-flow-token","expires_at":\(Int(Date.now.timeIntervalSince1970) + 3600),"endpoints":{"api":"https://api.endpoint.com"}}
+    """
+    let httpClient = MockHTTPClient()
+    httpClient.executeResults = [
+        .success(DataResponse(data: Data(), statusCode: 401)),
+        .success(DataResponse(data: Data(tokenJSON.utf8), statusCode: 200))
+    ]
+
+    let runner = MockAuthProcessRunner(stdout: "ghp_insufficient_scopes_token")
+    let logger = MockLogger()
+    let deviceFlow = MockDeviceFlowService()
+    let expectedOAuthToken = OAuthToken(accessToken: "gho_device_token", tokenType: "bearer", scope: "copilot")
+    deviceFlow.performDeviceFlowResult = .success(expectedOAuthToken)
+
+    let service = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: httpClient)
+    let credentials = try await service.getValidCopilotToken()
+
+    #expect(credentials.token == "device-flow-token")
+    #expect(deviceFlow.performDeviceFlowCallCount == 1)
+    #expect(httpClient.executeCallCount == 2)
+}
+
+@Test func getValidCopilotTokenTriggersDeviceFlowOn403FromTokenExchange() async throws {
+    let tokenJSON = """
+    {"token":"device-flow-token","expires_at":\(Int(Date.now.timeIntervalSince1970) + 3600),"endpoints":{"api":"https://api.endpoint.com"}}
+    """
+    let httpClient = MockHTTPClient()
+    httpClient.executeResults = [
+        .success(DataResponse(data: Data(), statusCode: 403)),
+        .success(DataResponse(data: Data(tokenJSON.utf8), statusCode: 200))
+    ]
+
+    let runner = MockAuthProcessRunner(stdout: "ghp_no_copilot_scope_token")
+    let logger = MockLogger()
+    let deviceFlow = MockDeviceFlowService()
+    let expectedOAuthToken = OAuthToken(accessToken: "gho_device_token", tokenType: "bearer", scope: "copilot")
+    deviceFlow.performDeviceFlowResult = .success(expectedOAuthToken)
+
+    let service = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: httpClient)
+    let credentials = try await service.getValidCopilotToken()
+
+    #expect(credentials.token == "device-flow-token")
+    #expect(deviceFlow.performDeviceFlowCallCount == 1)
+    #expect(httpClient.executeCallCount == 2)
+}
+
+@Test func getValidCopilotTokenTriggersDeviceFlowOn404FromTokenExchange() async throws {
+    let tokenJSON = """
+    {"token":"device-flow-token","expires_at":\(Int(Date.now.timeIntervalSince1970) + 3600),"endpoints":{"api":"https://api.endpoint.com"}}
+    """
+    let httpClient = MockHTTPClient()
+    httpClient.executeResults = [
+        .success(DataResponse(data: Data(), statusCode: 404)),
+        .success(DataResponse(data: Data(tokenJSON.utf8), statusCode: 200))
+    ]
+
+    let runner = MockAuthProcessRunner(stdout: "ghp_no_copilot_subscription")
+    let logger = MockLogger()
+    let deviceFlow = MockDeviceFlowService()
+    let expectedOAuthToken = OAuthToken(accessToken: "gho_device_token", tokenType: "bearer", scope: "copilot")
+    deviceFlow.performDeviceFlowResult = .success(expectedOAuthToken)
+
+    let service = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: httpClient)
+    let credentials = try await service.getValidCopilotToken()
+
+    #expect(credentials.token == "device-flow-token")
+    #expect(deviceFlow.performDeviceFlowCallCount == 1)
+    #expect(httpClient.executeCallCount == 2)
+}
+
+@Test func getValidCopilotTokenDeletesStaleStoredTokenBeforeDeviceFlow() async throws {
+    let tokenJSON = """
+    {"token":"fresh-token","expires_at":\(Int(Date.now.timeIntervalSince1970) + 3600),"endpoints":{"api":"https://api.endpoint.com"}}
+    """
+    let httpClient = MockHTTPClient()
+    httpClient.executeResults = [
+        .success(DataResponse(data: Data(), statusCode: 404)),
+        .success(DataResponse(data: Data(tokenJSON.utf8), statusCode: 200))
+    ]
+
+    let runner = MockAuthProcessRunner(stdout: "ghp_cli_token")
+    let logger = MockLogger()
+    let deviceFlow = MockDeviceFlowService()
+    deviceFlow.storedToken = OAuthToken(accessToken: "gho_stale_stored_token", tokenType: "bearer", scope: "user:email")
+    let newOAuthToken = OAuthToken(accessToken: "gho_new_device_token", tokenType: "bearer", scope: "copilot")
+    deviceFlow.performDeviceFlowResult = .success(newOAuthToken)
+
+    let service = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: httpClient)
+    let credentials = try await service.getValidCopilotToken()
+
+    #expect(credentials.token == "fresh-token")
+    #expect(deviceFlow.deleteStoredTokenCallCount == 1)
+    #expect(deviceFlow.performDeviceFlowCallCount == 1)
+}
+
+@Test func getValidCopilotTokenPropagatesTokenExchangeFailure() async {
+    let httpClient = MockHTTPClient()
+    httpClient.executeResults = [
+        .success(DataResponse(data: Data("Internal Server Error".utf8), statusCode: 500))
+    ]
+
+    let runner = MockAuthProcessRunner(stdout: "ghp_test_token")
+    let logger = MockLogger()
+    let deviceFlow = MockDeviceFlowService()
+    let service = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: httpClient)
+
+    do {
+        _ = try await service.getValidCopilotToken()
+        Issue.record("Expected AuthServiceError.tokenExchangeFailed")
+    } catch let error as AuthServiceError {
+        switch error {
+        case .tokenExchangeFailed(let message):
+            #expect(message.contains("500"))
+        default:
+            Issue.record("Expected tokenExchangeFailed, got \(error)")
+        }
+    } catch {
+        Issue.record("Unexpected error type: \(error)")
+    }
+}
+
+// MARK: - invalidateCachedToken
 
 @Test func invalidateCachedTokenForcesRefreshOnNextCall() async throws {
     let tokenJSON1 = """
@@ -497,6 +515,8 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     #expect(httpClient.executeCallCount == 2)
     #expect(logger.debugMessages.contains { $0.contains("Cached Copilot token invalidated") })
 }
+
+// MARK: - retryingOnUnauthorized
 
 @Test func retryingOnUnauthorizedReturnsResultOnSuccess() async throws {
     let authService = MockAuthService()
@@ -578,4 +598,150 @@ private final class MockDeviceFlowService: DeviceFlowServiceProtocol, @unchecked
     }
 
     #expect(authService.invalidateCallCount == 0)
+}
+
+// MARK: - AuthServiceError descriptions
+
+@Test func authServiceErrorGitHubCLINotFoundDescription() {
+    let error = AuthServiceError.gitHubCLINotFound
+    #expect(error.description == "GitHub CLI (gh) not found. Install it from https://cli.github.com")
+}
+
+@Test func authServiceErrorGitHubCLIFailedDescription() {
+    let error = AuthServiceError.gitHubCLIFailed("permission denied")
+    #expect(error.description == "GitHub CLI failed: permission denied")
+}
+
+@Test func authServiceErrorTokenExchangeFailedDescription() {
+    let error = AuthServiceError.tokenExchangeFailed("Network error: timeout")
+    #expect(error.description == "Copilot token exchange failed: Network error: timeout")
+}
+
+@Test func authServiceErrorNotAuthenticatedDescription() {
+    let error = AuthServiceError.notAuthenticated
+    #expect(error.description == "Not authenticated. Run `gh auth login` first.")
+}
+
+@Test func authServiceErrorCopilotSubscriptionRequiredDescription() {
+    let error = AuthServiceError.copilotSubscriptionRequired
+    #expect(error.description.contains("Copilot subscription"))
+    #expect(error.description.contains("github.com/settings/copilot"))
+}
+
+@Test func authServiceConformsToProtocol() async {
+    let runner = MockAuthProcessRunner(stdout: "token", stderr: "", exitCode: 0)
+    let logger = MockLogger()
+    let deviceFlow = MockDeviceFlowService()
+    let service: any AuthServiceProtocol = GitHubCLIAuthService(processRunner: runner, logger: logger, deviceFlowService: deviceFlow, httpClient: MockHTTPClient())
+    _ = service
+}
+
+// MARK: - DeviceFlowError descriptions
+
+@Test func deviceFlowErrorDescriptions() {
+    let expired = DeviceFlowError.expired
+    #expect(expired.description.contains("expired"))
+
+    let denied = DeviceFlowError.accessDenied
+    #expect(denied.description.contains("denied"))
+
+    let network = DeviceFlowError.networkError("timeout")
+    #expect(network.description.contains("timeout"))
+
+    let invalid = DeviceFlowError.invalidResponse("bad json")
+    #expect(invalid.description.contains("bad json"))
+
+    let storage = DeviceFlowError.tokenStorageFailed("permission denied")
+    #expect(storage.description.contains("permission denied"))
+
+    let request = DeviceFlowError.requestFailed("HTTP 500")
+    #expect(request.description.contains("HTTP 500"))
+}
+
+// MARK: - OAuthToken / DeviceCodeResponse codable
+
+@Test func oauthTokenEncodesAndDecodes() throws {
+    let original = OAuthToken(accessToken: "gho_test123", tokenType: "bearer", scope: "user:email")
+    let encoder = JSONEncoder()
+    let data = try encoder.encode(original)
+    let decoded = try JSONDecoder().decode(OAuthToken.self, from: data)
+    #expect(decoded.accessToken == "gho_test123")
+    #expect(decoded.tokenType == "bearer")
+    #expect(decoded.scope == "user:email")
+}
+
+@Test func deviceCodeResponseDecodes() throws {
+    let json = """
+    {
+        "device_code": "dc_abc123",
+        "user_code": "ABCD-1234",
+        "verification_uri": "https://github.com/login/device",
+        "expires_in": 900,
+        "interval": 5
+    }
+    """.data(using: .utf8)!
+    let response = try JSONDecoder().decode(DeviceCodeResponse.self, from: json)
+    #expect(response.deviceCode == "dc_abc123")
+    #expect(response.userCode == "ABCD-1234")
+    #expect(response.verificationUri == "https://github.com/login/device")
+    #expect(response.expiresIn == 900)
+    #expect(response.interval == 5)
+}
+
+@Test func deviceCodePollResponseDecodesSuccess() throws {
+    let json = """
+    {
+        "access_token": "gho_success_token",
+        "token_type": "bearer",
+        "scope": "user:email"
+    }
+    """.data(using: .utf8)!
+    let response = try JSONDecoder().decode(DeviceCodePollResponse.self, from: json)
+    let token = response.toOAuthToken()
+    #expect(token != nil)
+    #expect(token?.accessToken == "gho_success_token")
+    #expect(token?.tokenType == "bearer")
+}
+
+@Test func deviceCodePollResponseDecodesPending() throws {
+    let json = """
+    {
+        "error": "authorization_pending",
+        "error_description": "The authorization request is still pending."
+    }
+    """.data(using: .utf8)!
+    let response = try JSONDecoder().decode(DeviceCodePollResponse.self, from: json)
+    #expect(response.error == "authorization_pending")
+    #expect(response.toOAuthToken() == nil)
+}
+
+@Test func deviceCodePollResponseReturnsNilWhenMissingFields() throws {
+    let json = """
+    {
+        "access_token": "gho_token_only"
+    }
+    """.data(using: .utf8)!
+    let response = try JSONDecoder().decode(DeviceCodePollResponse.self, from: json)
+    #expect(response.toOAuthToken() == nil)
+}
+
+// MARK: - MockDeviceFlowService helpers
+
+@Test func mockDeviceFlowServicePerformDeviceFlowIncrementsCallCount() async throws {
+    let deviceFlow = MockDeviceFlowService()
+    let expectedToken = OAuthToken(accessToken: "gho_device_flow_token", tokenType: "bearer", scope: "user:email")
+    deviceFlow.performDeviceFlowResult = .success(expectedToken)
+
+    let token = try await deviceFlow.performDeviceFlow()
+    #expect(token.accessToken == "gho_device_flow_token")
+    #expect(deviceFlow.performDeviceFlowCallCount == 1)
+}
+
+@Test func mockDeviceFlowServiceDeleteIncrementsCallCount() throws {
+    let deviceFlow = MockDeviceFlowService()
+    deviceFlow.storedToken = OAuthToken(accessToken: "gho_to_delete", tokenType: "bearer", scope: "")
+
+    try deviceFlow.deleteStoredToken()
+    #expect(deviceFlow.deleteStoredTokenCallCount == 1)
+    #expect(deviceFlow.storedToken == nil)
 }

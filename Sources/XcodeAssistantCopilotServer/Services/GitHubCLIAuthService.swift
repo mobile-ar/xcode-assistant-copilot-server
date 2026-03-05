@@ -73,27 +73,10 @@ public actor GitHubCLIAuthService: AuthServiceProtocol {
     }
 
     public func getGitHubToken() async throws -> String {
-        if let storedToken = try? deviceFlowService.loadStoredToken() {
-            logger.debug("Using stored OAuth token from device flow")
-            return storedToken.accessToken
+        if let token = try await resolveGitHubToken() {
+            return token
         }
-
-        let ghPath = try await findGitHubCLI()
-        let result = try await processRunner.run(executablePath: ghPath, arguments: ["auth", "token"])
-
-        guard result.succeeded else {
-            if result.stderr.contains("not logged") || result.stderr.contains("auth login") {
-                throw AuthServiceError.notAuthenticated
-            }
-            throw AuthServiceError.gitHubCLIFailed(result.stderr)
-        }
-
-        let token = result.stdout
-        guard !token.isEmpty else {
-            throw AuthServiceError.notAuthenticated
-        }
-
-        return token
+        throw AuthServiceError.notAuthenticated
     }
 
     public func getValidCopilotToken() async throws -> CopilotCredentials {
@@ -103,33 +86,65 @@ public actor GitHubCLIAuthService: AuthServiceProtocol {
 
         logger.debug("Refreshing Copilot token")
 
-        let githubToken = try await getGitHubToken()
-
-        do {
-            let copilotToken = try await exchangeForCopilotToken(githubToken: githubToken)
-            cachedToken = copilotToken
-            logger.info("Copilot token acquired (endpoint: \(copilotToken.apiEndpoint)), expires at \(copilotToken.expiresAt)")
-            return CopilotCredentials(token: copilotToken.token, apiEndpoint: copilotToken.apiEndpoint)
-        } catch AuthServiceError.copilotSubscriptionRequired {
-            logger.info("Token from gh CLI does not have Copilot access. Starting device code flow...")
-
-            if (try? deviceFlowService.loadStoredToken()) != nil {
-                logger.debug("Found a stored OAuth token, deleting it as it may be stale")
-                try? deviceFlowService.deleteStoredToken()
+        if let githubToken = try await resolveGitHubToken() {
+            do {
+                let copilotToken = try await exchangeForCopilotToken(githubToken: githubToken)
+                cachedToken = copilotToken
+                logger.info("Copilot token acquired (endpoint: \(copilotToken.apiEndpoint)), expires at \(copilotToken.expiresAt)")
+                return CopilotCredentials(token: copilotToken.token, apiEndpoint: copilotToken.apiEndpoint)
+            } catch AuthServiceError.copilotSubscriptionRequired {
+                logger.info("Existing token does not have Copilot access. Starting device code flow...")
             }
-
-            let oauthToken = try await deviceFlowService.performDeviceFlow()
-
-            let copilotToken = try await exchangeForCopilotToken(githubToken: oauthToken.accessToken)
-            cachedToken = copilotToken
-            logger.info("Copilot token acquired via device flow (endpoint: \(copilotToken.apiEndpoint)), expires at \(copilotToken.expiresAt)")
-            return CopilotCredentials(token: copilotToken.token, apiEndpoint: copilotToken.apiEndpoint)
+        } else {
+            logger.info("No GitHub token available. Starting device code flow...")
         }
+
+        if (try? deviceFlowService.loadStoredToken()) != nil {
+            logger.debug("Found a stored OAuth token, deleting it as it may be stale")
+            try? deviceFlowService.deleteStoredToken()
+        }
+
+        let oauthToken = try await deviceFlowService.performDeviceFlow()
+
+        let copilotToken = try await exchangeForCopilotToken(githubToken: oauthToken.accessToken)
+        cachedToken = copilotToken
+        logger.info("Copilot token acquired via device flow (endpoint: \(copilotToken.apiEndpoint)), expires at \(copilotToken.expiresAt)")
+        return CopilotCredentials(token: copilotToken.token, apiEndpoint: copilotToken.apiEndpoint)
     }
 
     public func invalidateCachedToken() {
         cachedToken = nil
         logger.debug("Cached Copilot token invalidated")
+    }
+
+    private func resolveGitHubToken() async throws -> String? {
+        if let storedToken = try? deviceFlowService.loadStoredToken() {
+            logger.debug("Using stored OAuth token from device flow")
+            return storedToken.accessToken
+        }
+
+        guard let ghPath = try? await findGitHubCLI() else {
+            logger.warn("GitHub CLI (gh) not found — will use device code flow")
+            return nil
+        }
+
+        let result = try await processRunner.run(executablePath: ghPath, arguments: ["auth", "token"])
+
+        guard result.succeeded else {
+            if result.stderr.contains("not logged") || result.stderr.contains("auth login") {
+                logger.info("GitHub CLI is not authenticated — will use device code flow")
+                return nil
+            }
+            throw AuthServiceError.gitHubCLIFailed(result.stderr)
+        }
+
+        let token = result.stdout
+        guard !token.isEmpty else {
+            logger.info("GitHub CLI returned an empty token — will use device code flow")
+            return nil
+        }
+
+        return token
     }
 
     private func exchangeForCopilotToken(githubToken: String) async throws -> CopilotToken {
@@ -142,7 +157,7 @@ public actor GitHubCLIAuthService: AuthServiceProtocol {
             throw AuthServiceError.tokenExchangeFailed("Network error: \(error.localizedDescription)")
         }
 
-        if response.statusCode == 404 {
+        if response.statusCode == 401 || response.statusCode == 403 || response.statusCode == 404 {
             throw AuthServiceError.copilotSubscriptionRequired
         }
 
