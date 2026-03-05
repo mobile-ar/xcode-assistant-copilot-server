@@ -35,13 +35,29 @@ public struct ConfigurationLoader: ConfigurationLoaderProtocol {
         "\(productionConfigDirectory)/config.json"
     }()
 
-    static let defaultConfigJSON: String = {
-        guard let url = Bundle.module.url(forResource: "config", withExtension: "json"),
-              let contents = try? String(contentsOf: url, encoding: .utf8) else {
-            fatalError("Bundled config.json resource not found in Bundle.module")
+    static let defaultConfigJSON: String = """
+        {
+          "mcpServers": {
+            "xcode": {
+              "type": "local",
+              "command": "xcrun",
+              "args": ["mcpbridge"],
+              "allowedTools": ["*"]
+            }
+          },
+          "allowedCliTools": [],
+          "bodyLimitMiB": 4,
+          "excludedFilePatterns": [],
+          "reasoningEffort": "xhigh",
+          "autoApprovePermissions": ["read", "mcp"],
+          "timeouts": {
+            "requestTimeoutSeconds": 300,
+            "streamingEndpointTimeoutSeconds": 300,
+            "defaultEndpointTimeoutSeconds": 60,
+            "httpClientTimeoutSeconds": 300
+          }
         }
-        return contents
-    }()
+        """
 
     public init(logger: LoggerProtocol) {
         self.logger = logger
