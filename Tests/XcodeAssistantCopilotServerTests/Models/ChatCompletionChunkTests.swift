@@ -10,7 +10,6 @@ import Testing
     let chunk = try JSONDecoder().decode(ChatCompletionChunk.self, from: data)
     #expect(chunk.id == "msg_01CPxga2wL4DMtEp32WWJEu6")
     #expect(chunk.model == "claude-haiku-4.5")  // model is String?
-    #expect(chunk.object == nil)
     #expect(chunk.choices.count == 1)
     #expect(chunk.choices[0].delta?.content == "Hello")
 }
@@ -83,7 +82,6 @@ import Testing
     let chunk = ChatCompletionChunk.makeRoleDelta(id: "test-id", model: "gpt-4")
     #expect(chunk.id == "test-id")
     #expect(chunk.model == "gpt-4")
-    #expect(chunk.object == "chat.completion.chunk")
     #expect(chunk.choices.count == 1)
     #expect(chunk.choices[0].delta?.role == .assistant)
     #expect(chunk.choices[0].delta?.content == nil)
@@ -134,7 +132,6 @@ import Testing
         choices: []
     )
     #expect(chunk.id == "id-1")
-    #expect(chunk.object == "chat.completion.chunk")
     #expect(chunk.model == "model-1")
     #expect(chunk.choices.isEmpty)
     #expect(chunk.systemFingerprint == nil)
@@ -178,7 +175,6 @@ import Testing
     let decoded = try JSONDecoder().decode(ChatCompletionChunk.self, from: data)
 
     #expect(decoded.id == original.id)
-    #expect(decoded.object == original.object)
     #expect(decoded.created == original.created)
     #expect(decoded.model == original.model)
     #expect(decoded.choices.count == 1)

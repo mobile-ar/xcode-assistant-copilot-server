@@ -40,10 +40,6 @@ public enum SSEParserError: Error, CustomStringConvertible {
 public struct SSEParser: Sendable {
     public init() {}
 
-    public func parse(bytes: URLSession.AsyncBytes) -> AsyncThrowingStream<SSEEvent, Error> {
-        parseLineSequence(bytes.lines)
-    }
-
     public func parseLines(_ lines: AsyncThrowingStream<String, Error>) -> AsyncThrowingStream<SSEEvent, Error> {
         parseLineSequence(lines)
     }
@@ -93,13 +89,6 @@ public struct SSEParser: Sendable {
                 task.cancel()
             }
         }
-    }
-
-    public func parseLine(_ line: String) -> SSEEvent? {
-        guard line.hasPrefix("data:") else { return nil }
-        let value = extractFieldValue(from: line, prefix: "data:")
-        guard !value.isEmpty else { return nil }
-        return SSEEvent(data: value)
     }
 
     private func extractFieldValue(from line: String, prefix: String) -> String {

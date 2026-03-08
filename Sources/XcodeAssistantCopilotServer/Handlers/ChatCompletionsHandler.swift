@@ -492,12 +492,6 @@ public struct ChatCompletionsHandler: Sendable {
         return Response(status: .ok, headers: sseHeaders(), body: .init(asyncSequence: responseStream))
     }
 
-    private func streamForModelWithRetry(copilotRequest: CopilotChatRequest, credentials: CopilotCredentials) async throws -> AsyncThrowingStream<SSEEvent, Error> {
-        try await authService.retryingOnUnauthorized(credentials: credentials) { newCredentials in
-            try await streamForModel(copilotRequest: copilotRequest, credentials: newCredentials)
-        }
-    }
-
     private func streamForModel(copilotRequest: CopilotChatRequest, credentials: CopilotCredentials) async throws -> AsyncThrowingStream<SSEEvent, Error> {
         var currentRequest = await resolveReasoningEffort(for: copilotRequest)
 

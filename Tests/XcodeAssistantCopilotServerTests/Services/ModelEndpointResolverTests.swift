@@ -38,96 +38,6 @@ private let testCredentials = CopilotCredentials(
     apiEndpoint: "https://api.test.githubcopilot.com"
 )
 
-@Test func copilotModelRequiresResponsesAPIWhenOnlyResponses() {
-    let model = CopilotModel(id: "gpt-5.1-codex", supportedEndpoints: ["/responses"])
-    #expect(model.requiresResponsesAPI == true)
-}
-
-@Test func copilotModelDoesNotRequireResponsesAPIWhenBothSupported() {
-    let model = CopilotModel(id: "gpt-5.1", supportedEndpoints: ["/chat/completions", "/responses"])
-    #expect(model.requiresResponsesAPI == false)
-}
-
-@Test func copilotModelDoesNotRequireResponsesAPIWhenOnlyChatCompletions() {
-    let model = CopilotModel(id: "claude-sonnet-4", supportedEndpoints: ["/chat/completions"])
-    #expect(model.requiresResponsesAPI == false)
-}
-
-@Test func copilotModelDoesNotRequireResponsesAPIWhenNoEndpoints() {
-    let model = CopilotModel(id: "gpt-4")
-    #expect(model.requiresResponsesAPI == false)
-}
-
-@Test func copilotModelSupportsResponsesAPI() {
-    let both = CopilotModel(id: "gpt-5.1", supportedEndpoints: ["/chat/completions", "/responses"])
-    #expect(both.supportsResponsesAPI == true)
-
-    let onlyResponses = CopilotModel(id: "gpt-5.1-codex", supportedEndpoints: ["/responses"])
-    #expect(onlyResponses.supportsResponsesAPI == true)
-
-    let onlyChat = CopilotModel(id: "claude-sonnet-4", supportedEndpoints: ["/chat/completions"])
-    #expect(onlyChat.supportsResponsesAPI == false)
-
-    let noEndpoints = CopilotModel(id: "gpt-4")
-    #expect(noEndpoints.supportsResponsesAPI == false)
-}
-
-@Test func copilotModelSupportsChatCompletions() {
-    let both = CopilotModel(id: "gpt-5.1", supportedEndpoints: ["/chat/completions", "/responses"])
-    #expect(both.supportsChatCompletions == true)
-
-    let onlyChat = CopilotModel(id: "claude-sonnet-4", supportedEndpoints: ["/chat/completions"])
-    #expect(onlyChat.supportsChatCompletions == true)
-
-    let onlyResponses = CopilotModel(id: "gpt-5.1-codex", supportedEndpoints: ["/responses"])
-    #expect(onlyResponses.supportsChatCompletions == false)
-
-    let noEndpointsWithChatType = CopilotModel(id: "gpt-4", capabilities: CopilotModelCapabilities(type: "chat"))
-    #expect(noEndpointsWithChatType.supportsChatCompletions == true)
-
-    let noEndpointsNoCapabilities = CopilotModel(id: "unknown")
-    #expect(noEndpointsNoCapabilities.supportsChatCompletions == false)
-}
-
-@Test func copilotModelSupportedEndpointsDecodes() throws {
-    let json = """
-    {"id":"gpt-5.1-codex","name":"GPT-5.1-Codex","version":"gpt-5.1-codex","supported_endpoints":["/responses"]}
-    """
-    let model = try JSONDecoder().decode(CopilotModel.self, from: Data(json.utf8))
-    #expect(model.id == "gpt-5.1-codex")
-    #expect(model.supportedEndpoints == ["/responses"])
-    #expect(model.requiresResponsesAPI == true)
-}
-
-@Test func copilotModelSupportedEndpointsDecodesMultiple() throws {
-    let json = """
-    {"id":"gpt-5.1","name":"GPT-5.1","version":"gpt-5.1","supported_endpoints":["/chat/completions","/responses"]}
-    """
-    let model = try JSONDecoder().decode(CopilotModel.self, from: Data(json.utf8))
-    #expect(model.supportedEndpoints == ["/chat/completions", "/responses"])
-    #expect(model.requiresResponsesAPI == false)
-}
-
-@Test func copilotModelSupportedEndpointsDecodesWhenMissing() throws {
-    let json = """
-    {"id":"gpt-4","name":"GPT 4","version":"gpt-4-0613","capabilities":{"type":"chat"}}
-    """
-    let model = try JSONDecoder().decode(CopilotModel.self, from: Data(json.utf8))
-    #expect(model.supportedEndpoints == nil)
-    #expect(model.requiresResponsesAPI == false)
-    #expect(model.supportsChatCompletions == true)
-}
-
-@Test func copilotModelSupportedEndpointsDecodesWhenMissingWithoutCapabilities() throws {
-    let json = """
-    {"id":"gpt-4","name":"GPT 4","version":"gpt-4-0613"}
-    """
-    let model = try JSONDecoder().decode(CopilotModel.self, from: Data(json.utf8))
-    #expect(model.supportedEndpoints == nil)
-    #expect(model.requiresResponsesAPI == false)
-    #expect(model.supportsChatCompletions == false)
-}
-
 @Test func resolverReturnsChatCompletionsForUnknownModel() async {
     let mockAPI = LocalMockCopilotAPIService(models: [])
     let logger = MockLogger()
@@ -290,9 +200,6 @@ private let testCredentials = CopilotCredentials(
     #expect(model.name == "GPT-5.1-Codex")
     #expect(model.version == "gpt-5.1-codex")
     #expect(model.supportedEndpoints == ["/responses"])
-    #expect(model.requiresResponsesAPI == true)
-    #expect(model.supportsResponsesAPI == true)
-    #expect(model.supportsChatCompletions == false)
     #expect(model.capabilities?.family == "gpt-5.1-codex")
     #expect(model.capabilities?.type == "chat")
     #expect(model.capabilities?.supports?.streaming == true)
@@ -300,88 +207,6 @@ private let testCredentials = CopilotCredentials(
     #expect(model.capabilities?.supports?.parallelToolCalls == true)
     #expect(model.capabilities?.supports?.structuredOutputs == true)
     #expect(model.capabilities?.supports?.vision == true)
-}
-
-@Test func copilotModelSupportedEndpointsRealWorldDualModel() throws {
-    let json = """
-    {
-        "capabilities": {
-            "family": "gpt-5.1",
-            "object": "model_capabilities",
-            "supports": {"parallel_tool_calls": true, "streaming": true, "structured_outputs": true, "tool_calls": true, "vision": true},
-            "tokenizer": "o200k_base",
-            "type": "chat"
-        },
-        "id": "gpt-5.1",
-        "name": "GPT-5.1",
-        "object": "model",
-        "preview": false,
-        "supported_endpoints": ["/chat/completions", "/responses"],
-        "vendor": "OpenAI",
-        "version": "gpt-5.1"
-    }
-    """
-
-    let model = try JSONDecoder().decode(CopilotModel.self, from: Data(json.utf8))
-    #expect(model.id == "gpt-5.1")
-    #expect(model.supportedEndpoints == ["/chat/completions", "/responses"])
-    #expect(model.requiresResponsesAPI == false)
-    #expect(model.supportsResponsesAPI == true)
-    #expect(model.supportsChatCompletions == true)
-}
-
-@Test func copilotModelSupportedEndpointsRealWorldChatOnlyModel() throws {
-    let json = """
-    {
-        "capabilities": {
-            "family": "claude-sonnet-4",
-            "object": "model_capabilities",
-            "supports": {"streaming": true, "tool_calls": true, "vision": true},
-            "tokenizer": "o200k_base",
-            "type": "chat"
-        },
-        "id": "claude-sonnet-4",
-        "name": "Claude Sonnet 4",
-        "object": "model",
-        "preview": false,
-        "supported_endpoints": ["/chat/completions"],
-        "vendor": "Anthropic",
-        "version": "claude-sonnet-4"
-    }
-    """
-
-    let model = try JSONDecoder().decode(CopilotModel.self, from: Data(json.utf8))
-    #expect(model.id == "claude-sonnet-4")
-    #expect(model.supportedEndpoints == ["/chat/completions"])
-    #expect(model.requiresResponsesAPI == false)
-    #expect(model.supportsResponsesAPI == false)
-    #expect(model.supportsChatCompletions == true)
-}
-
-@Test func copilotModelSupportedEndpointsRealWorldLegacyModel() throws {
-    let json = """
-    {
-        "capabilities": {
-            "family": "gpt-4",
-            "object": "model_capabilities",
-            "supports": {"streaming": true, "tool_calls": true},
-            "tokenizer": "cl100k_base",
-            "type": "chat"
-        },
-        "id": "gpt-4",
-        "name": "GPT 4",
-        "object": "model",
-        "preview": false,
-        "vendor": "Azure OpenAI",
-        "version": "gpt-4-0613"
-    }
-    """
-
-    let model = try JSONDecoder().decode(CopilotModel.self, from: Data(json.utf8))
-    #expect(model.id == "gpt-4")
-    #expect(model.supportedEndpoints == nil)
-    #expect(model.requiresResponsesAPI == false)
-    #expect(model.supportsChatCompletions == true)
 }
 
 @Test func resolverReturnsChatCompletionsForModelWithNoSupportedEndpointsField() async {

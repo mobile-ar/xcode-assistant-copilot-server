@@ -6,7 +6,7 @@ import Testing
     let router = Router(context: AppRequestContext.self)
     let registry = RouteRegistry(router: router)
 
-    #expect(registry.routes.isEmpty)
+    #expect(registry.registeredRoutes.isEmpty)
 }
 
 @Test func registryTracksGetRoute() {
@@ -17,9 +17,9 @@ import Testing
         Response(status: .ok)
     }
 
-    #expect(registry.routes.count == 1)
-    #expect(registry.routes[0].method == "GET")
-    #expect(registry.routes[0].path == "/health")
+    #expect(registry.registeredRoutes.count == 1)
+    #expect(registry.registeredRoutes[0].method == "GET")
+    #expect(registry.registeredRoutes[0].path == "/health")
 }
 
 @Test func registryTracksPostRoute() {
@@ -30,9 +30,9 @@ import Testing
         Response(status: .ok)
     }
 
-    #expect(registry.routes.count == 1)
-    #expect(registry.routes[0].method == "POST")
-    #expect(registry.routes[0].path == "/v1/chat/completions")
+    #expect(registry.registeredRoutes.count == 1)
+    #expect(registry.registeredRoutes[0].method == "POST")
+    #expect(registry.registeredRoutes[0].path == "/v1/chat/completions")
 }
 
 @Test func registryTracksMultipleRoutes() {
@@ -43,7 +43,7 @@ import Testing
     registry.get("v1/models") { _, _ in Response(status: .ok) }
     registry.post("v1/chat/completions") { _, _ in Response(status: .ok) }
 
-    #expect(registry.routes.count == 3)
+    #expect(registry.registeredRoutes.count == 3)
 }
 
 @Test func registryPreservesRouteOrder() {
@@ -54,9 +54,9 @@ import Testing
     registry.get("v1/models") { _, _ in Response(status: .ok) }
     registry.post("v1/chat/completions") { _, _ in Response(status: .ok) }
 
-    #expect(registry.routes[0].path == "/health")
-    #expect(registry.routes[1].path == "/v1/models")
-    #expect(registry.routes[2].path == "/v1/chat/completions")
+    #expect(registry.registeredRoutes[0].path == "/health")
+    #expect(registry.registeredRoutes[1].path == "/v1/models")
+    #expect(registry.registeredRoutes[2].path == "/v1/chat/completions")
 }
 
 @Test func registrySummaryFormatsAllRoutes() {

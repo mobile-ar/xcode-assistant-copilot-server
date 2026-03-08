@@ -93,71 +93,6 @@ import Testing
     #expect(chunk.choices.first?.finishReason == "tool_calls")
 }
 
-@Test func sseParserParseLineWithDataPrefix() {
-    let parser = SSEParser()
-    let event = parser.parseLine("data: {\"test\":true}")
-    #expect(event != nil)
-    #expect(event?.data == "{\"test\":true}")
-}
-
-@Test func sseParserParseLineWithDataPrefixNoSpace() {
-    let parser = SSEParser()
-    let event = parser.parseLine("data:{\"test\":true}")
-    #expect(event != nil)
-    #expect(event?.data == "{\"test\":true}")
-}
-
-@Test func sseParserParseLineWithDone() {
-    let parser = SSEParser()
-    let event = parser.parseLine("data: [DONE]")
-    #expect(event != nil)
-    #expect(event?.isDone == true)
-}
-
-@Test func sseParserParseLineReturnsNilForNonDataLine() {
-    let parser = SSEParser()
-    #expect(parser.parseLine("event: message") == nil)
-    #expect(parser.parseLine("id: 42") == nil)
-    #expect(parser.parseLine(": comment") == nil)
-    #expect(parser.parseLine("") == nil)
-    #expect(parser.parseLine("random text") == nil)
-}
-
-@Test func sseParserParseLineReturnsNilForEmptyDataLine() {
-    let parser = SSEParser()
-    let event = parser.parseLine("data: ")
-    // "data: " with just a space results in empty string after trimming the space
-    // The extractFieldValue strips one leading space, leaving ""
-    #expect(event == nil)
-}
-
-@Test func sseParserParseLinePreservesWhitespaceInData() {
-    let parser = SSEParser()
-    let event = parser.parseLine("data:  multiple  spaces  ")
-    #expect(event != nil)
-    #expect(event?.data == " multiple  spaces  ")
-}
-
-@Test func sseParserParseLineWithJSONData() {
-    let parser = SSEParser()
-    let json = "{\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"choices\":[]}"
-    let event = parser.parseLine("data: \(json)")
-    #expect(event != nil)
-    #expect(event?.data == json)
-}
-
-@Test func sseParserParseLineStripsExactlyOneLeadingSpace() {
-    let parser = SSEParser()
-    let event1 = parser.parseLine("data: hello")
-    #expect(event1?.data == "hello")
-
-    let event2 = parser.parseLine("data:hello")
-    #expect(event2?.data == "hello")
-
-    let event3 = parser.parseLine("data:  hello")
-    #expect(event3?.data == " hello")
-}
-
 @Test func sseParserErrorDescriptions() {
     let invalidData = SSEParserError.invalidData("bad encoding")
     #expect(invalidData.description.contains("bad encoding"))
@@ -217,40 +152,10 @@ import Testing
     }
 }
 
-@Test func sseParserParseLineWithLongData() {
-    let parser = SSEParser()
-    let longString = String(repeating: "a", count: 10000)
-    let event = parser.parseLine("data: \(longString)")
-    #expect(event != nil)
-    #expect(event?.data.count == 10000)
-}
-
-@Test func sseParserParseLineWithSpecialCharacters() {
-    let parser = SSEParser()
-    let event = parser.parseLine("data: {\"text\":\"hello\\nworld\\t\\\"quoted\\\"\"}")
-    #expect(event != nil)
-    #expect(event?.data.contains("hello") == true)
-}
-
-@Test func sseParserParseLineWithUnicodeData() {
-    let parser = SSEParser()
-    let event = parser.parseLine("data: {\"emoji\":\"🚀\",\"japanese\":\"日本語\"}")
-    #expect(event != nil)
-    #expect(event?.data.contains("🚀") == true)
-    #expect(event?.data.contains("日本語") == true)
-}
-
 @Test func sseEventDataPreservesExactContent() {
     let data = "{\"choices\":[{\"delta\":{\"content\":\"Hello, world!\"},\"index\":0}]}"
     let event = SSEEvent(data: data)
     #expect(event.data == data)
-}
-
-@Test func sseParserParseLineWithColonInData() {
-    let parser = SSEParser()
-    let event = parser.parseLine("data: key:value:extra")
-    #expect(event != nil)
-    #expect(event?.data == "key:value:extra")
 }
 
 @Test func sseEventDecodeDataWithRoleDelta() throws {
@@ -292,15 +197,6 @@ import Testing
     let event = SSEEvent(data: json)
     let chunk = try event.decodeData(ChatCompletionChunk.self)
     #expect(chunk.systemFingerprint == "fp_abc123")
-}
-
-@Test func sseParserParseLineDataPrefixCaseSensitive() {
-    let parser = SSEParser()
-    let upper = parser.parseLine("DATA: hello")
-    #expect(upper == nil)
-
-    let mixed = parser.parseLine("Data: hello")
-    #expect(mixed == nil)
 }
 
 @Test func sseParserFlushesEventWhenNewEventFieldArrivesWithoutBlankLine() async throws {

@@ -105,7 +105,6 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     #expect(config.autoApprovePermissions.isApproved(.shell) == false)
     #expect(config.timeouts.requestTimeoutSeconds == 300)
     #expect(config.timeouts.streamingEndpointTimeoutSeconds == 300)
-    #expect(config.timeouts.defaultEndpointTimeoutSeconds == 60)
     #expect(config.timeouts.httpClientTimeoutSeconds == 300)
 }
 
@@ -738,7 +737,6 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     #expect(config.hasLocalMCPServers == false)
     #expect(config.timeouts.requestTimeoutSeconds == 300)
     #expect(config.timeouts.streamingEndpointTimeoutSeconds == 300)
-    #expect(config.timeouts.defaultEndpointTimeoutSeconds == 60)
     #expect(config.timeouts.httpClientTimeoutSeconds == 300)
 }
 
@@ -951,7 +949,6 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     let timeouts = TimeoutsConfiguration()
     #expect(timeouts.requestTimeoutSeconds == 300)
     #expect(timeouts.streamingEndpointTimeoutSeconds == 300)
-    #expect(timeouts.defaultEndpointTimeoutSeconds == 60)
     #expect(timeouts.httpClientTimeoutSeconds == 300)
 }
 
@@ -959,12 +956,10 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     let timeouts = TimeoutsConfiguration(
         requestTimeoutSeconds: 120,
         streamingEndpointTimeoutSeconds: 180,
-        defaultEndpointTimeoutSeconds: 30,
         httpClientTimeoutSeconds: 240
     )
     #expect(timeouts.requestTimeoutSeconds == 120)
     #expect(timeouts.streamingEndpointTimeoutSeconds == 180)
-    #expect(timeouts.defaultEndpointTimeoutSeconds == 30)
     #expect(timeouts.httpClientTimeoutSeconds == 240)
 }
 
@@ -972,7 +967,6 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     let config = ServerConfiguration()
     #expect(config.timeouts.requestTimeoutSeconds == 300)
     #expect(config.timeouts.streamingEndpointTimeoutSeconds == 300)
-    #expect(config.timeouts.defaultEndpointTimeoutSeconds == 60)
     #expect(config.timeouts.httpClientTimeoutSeconds == 300)
 }
 
@@ -990,7 +984,6 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
         "timeouts": {
             "requestTimeoutSeconds": 600,
             "streamingEndpointTimeoutSeconds": 600,
-            "defaultEndpointTimeoutSeconds": 90,
             "httpClientTimeoutSeconds": 600
         }
     }
@@ -1004,7 +997,6 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     let config = try loader.load(from: configPath.path)
     #expect(config.timeouts.requestTimeoutSeconds == 600)
     #expect(config.timeouts.streamingEndpointTimeoutSeconds == 600)
-    #expect(config.timeouts.defaultEndpointTimeoutSeconds == 90)
     #expect(config.timeouts.httpClientTimeoutSeconds == 600)
 }
 
@@ -1030,7 +1022,6 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     let config = try loader.load(from: configPath.path)
     #expect(config.timeouts.requestTimeoutSeconds == 300)
     #expect(config.timeouts.streamingEndpointTimeoutSeconds == 300)
-    #expect(config.timeouts.defaultEndpointTimeoutSeconds == 60)
     #expect(config.timeouts.httpClientTimeoutSeconds == 300)
 }
 

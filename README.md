@@ -187,7 +187,6 @@ This is the default config that has Xcode MCP enabled by default. To regenerate 
   "timeouts": {
     "requestTimeoutSeconds": 300,
     "streamingEndpointTimeoutSeconds": 300,
-    "defaultEndpointTimeoutSeconds": 60,
     "httpClientTimeoutSeconds": 300
   }
 }
@@ -205,7 +204,6 @@ To use the non MCP version just remove the whole 'xcode' object from the json.
   "timeouts": {
     "requestTimeoutSeconds": 300,
     "streamingEndpointTimeoutSeconds": 300,
-    "defaultEndpointTimeoutSeconds": 60,
     "httpClientTimeoutSeconds": 300
   }
 }
@@ -264,7 +262,6 @@ An optional object controlling the various timeout durations used by the server.
 |---|---|---|---|
 | `requestTimeoutSeconds` | `number` | `300` | Maximum time the server waits for a complete streaming response from the Copilot API before cancelling the request and returning a timeout error to Xcode. |
 | `streamingEndpointTimeoutSeconds` | `number` | `300` | Per-request `URLRequest` timeout for streaming endpoints (`/chat/completions` and `/responses`). Controls how long the underlying URL session waits before the connection is considered timed out. |
-| `defaultEndpointTimeoutSeconds` | `number` | `60` | Per-request `URLRequest` timeout for all non-streaming endpoints (e.g. model listing, token exchange). |
 | `httpClientTimeoutSeconds` | `number` | `300` | Session-level `timeoutIntervalForRequest` applied to the shared `URLSession` used by the HTTP client. |
 
 ## Operating Modes

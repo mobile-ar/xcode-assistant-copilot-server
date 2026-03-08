@@ -53,7 +53,6 @@ public struct ConfigurationLoader: ConfigurationLoaderProtocol {
           "timeouts": {
             "requestTimeoutSeconds": 300,
             "streamingEndpointTimeoutSeconds": 300,
-            "defaultEndpointTimeoutSeconds": 60,
             "httpClientTimeoutSeconds": 300
           }
         }

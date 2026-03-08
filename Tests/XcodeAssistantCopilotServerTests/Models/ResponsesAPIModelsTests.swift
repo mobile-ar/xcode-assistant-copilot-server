@@ -250,17 +250,6 @@ import Foundation
     #expect(event.itemId == nil)
 }
 
-@Test func responsesFunctionCallArgsDoneEventDecodes() throws {
-    let json = """
-    {"arguments":"{\\\"city\\\":\\\"NYC\\\"}","call_id":"call_123","output_index":0,"item_id":"fc_1"}
-    """
-    let event = try JSONDecoder().decode(ResponsesFunctionCallArgsDoneEvent.self, from: Data(json.utf8))
-    #expect(event.arguments == "{\"city\":\"NYC\"}")
-    #expect(event.callId == "call_123")
-    #expect(event.outputIndex == 0)
-    #expect(event.itemId == "fc_1")
-}
-
 @Test func responsesCompletedEventDecodes() throws {
     let json = """
     {"response":{"id":"resp_abc123","status":"completed"}}

@@ -67,7 +67,7 @@ final class MockMCPBridgeService: MCPBridgeServiceProtocol, @unchecked Sendable 
         }
 
         guard let result = callResults[name] else {
-            throw MCPToolError.toolNotFound(name)
+            throw MCPBridgeError.toolExecutionFailed(name)
         }
         return result
     }

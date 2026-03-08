@@ -13,11 +13,7 @@ public struct RouteDescriptor: Sendable {
 
 public struct RouteRegistry {
     private let router: Router<AppRequestContext>
-    private var registeredRoutes: [RouteDescriptor] = []
-
-    public var routes: [RouteDescriptor] {
-        registeredRoutes
-    }
+    private(set) var registeredRoutes: [RouteDescriptor] = []
 
     public init(router: Router<AppRequestContext>) {
         self.router = router

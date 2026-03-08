@@ -194,7 +194,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
 
 @Test func executeMCPToolReturnsErrorWhenBridgeCallFails() async throws {
     let mcpBridge = MockMCPBridgeService()
-    mcpBridge.callToolError = MCPToolError.executionFailed("timeout")
+    mcpBridge.callToolError = MCPBridgeError.toolExecutionFailed("Error executing tool search")
 
     let logger = MockLogger()
     let config = ServerConfiguration(
@@ -1288,4 +1288,3 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
     _ = await handlerTask.value
     #expect(mockAPI.streamChatCompletionsCallCount == 1)
 }
-

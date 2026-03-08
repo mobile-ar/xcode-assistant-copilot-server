@@ -132,23 +132,6 @@ import Testing
     #expect(content.text == nil)
 }
 
-@Test func mcpToolErrorToolNotFoundDescription() {
-    let error = MCPToolError.toolNotFound("missing_tool")
-    #expect(error.description.contains("missing_tool"))
-    #expect(error.description.contains("not found"))
-}
-
-@Test func mcpToolErrorExecutionFailedDescription() {
-    let error = MCPToolError.executionFailed("timeout occurred")
-    #expect(error.description.contains("timeout occurred"))
-    #expect(error.description.contains("execution failed"))
-}
-
-@Test func mcpToolErrorBridgeNotAvailableDescription() {
-    let error = MCPToolError.bridgeNotAvailable
-    #expect(error.description.contains("not available"))
-}
-
 @Test func toOpenAIToolRoundTripEncodesCorrectly() throws {
     let tool = MCPTool(
         name: "test_tool",

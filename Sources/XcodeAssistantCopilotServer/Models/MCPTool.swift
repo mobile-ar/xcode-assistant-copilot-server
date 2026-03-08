@@ -57,20 +57,3 @@ public struct MCPToolResultContent: Sendable {
         self.text = text
     }
 }
-
-public enum MCPToolError: Error, CustomStringConvertible {
-    case toolNotFound(String)
-    case executionFailed(String)
-    case bridgeNotAvailable
-
-    public var description: String {
-        switch self {
-        case .toolNotFound(let name):
-            "MCP tool not found: \(name)"
-        case .executionFailed(let message):
-            "MCP tool execution failed: \(message)"
-        case .bridgeNotAvailable:
-            "MCP bridge is not available"
-        }
-    }
-}

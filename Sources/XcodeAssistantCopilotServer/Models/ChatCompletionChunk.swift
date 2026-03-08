@@ -2,7 +2,6 @@ import Foundation
 
 public struct ChatCompletionChunk: Codable, Sendable {
     public let id: String
-    public let object: String?
     public let created: Int
     public let model: String?
     public let choices: [ChunkChoice]
@@ -10,7 +9,6 @@ public struct ChatCompletionChunk: Codable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id
-        case object
         case created
         case model
         case choices
@@ -19,14 +17,12 @@ public struct ChatCompletionChunk: Codable, Sendable {
 
     public init(
         id: String,
-        object: String? = "chat.completion.chunk",
         created: Int = ChatCompletionChunk.currentTimestamp(),
         model: String? = nil,
         choices: [ChunkChoice],
         systemFingerprint: String? = nil
     ) {
         self.id = id
-        self.object = object
         self.created = created
         self.model = model
         self.choices = choices

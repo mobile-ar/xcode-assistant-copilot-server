@@ -371,20 +371,6 @@ private let testCredentials = CopilotCredentials(token: "test-copilot-token", ap
     #expect(sent.baseURL == testCredentials.apiEndpoint)
 }
 
-@Test func listModelsWithModelsKeyFallback() async throws {
-    let mock = MockHTTPClient()
-    let modelsJSON = """
-    {"models":[{"id":"claude-3-opus"}]}
-    """
-    mock.executeResults = [.success(DataResponse(data: modelsJSON.data(using: .utf8)!, statusCode: 200))]
-
-    let service = makeService(httpClient: mock)
-    let models = try await service.listModels(credentials: testCredentials)
-
-    #expect(models.count == 1)
-    #expect(models[0].id == "claude-3-opus")
-}
-
 @Test func copilotAPIErrorDescriptions() {
     let invalidURL = CopilotAPIError.invalidURL("bad://url")
     #expect(invalidURL.description.contains("bad://url"))

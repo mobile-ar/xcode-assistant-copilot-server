@@ -19,8 +19,6 @@ public struct MCPResponse: Decodable, Sendable {
     public let result: MCPResult?
     public let error: MCPError?
 
-    public var isSuccess: Bool { error == nil }
-
     public init(id: Int? = nil, result: MCPResult? = nil, error: MCPError? = nil) {
         self.id = id
         self.result = result
@@ -186,16 +184,5 @@ public struct MCPNotification: Encodable, Sendable {
         self.jsonrpc = "2.0"
         self.method = method
         self.params = params
-    }
-}
-
-enum MCPParseError: Error, CustomStringConvertible {
-    case invalidJSON
-
-    var description: String {
-        switch self {
-        case .invalidJSON:
-            "Failed to parse MCP response as JSON"
-        }
     }
 }

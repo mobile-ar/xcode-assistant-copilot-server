@@ -89,32 +89,6 @@ public struct ResponsesFunctionCallArgsDeltaEvent: Decodable, Sendable {
     }
 }
 
-public struct ResponsesFunctionCallArgsDoneEvent: Decodable, Sendable {
-    public let arguments: String
-    public let callId: String?
-    public let outputIndex: Int?
-    public let itemId: String?
-
-    enum CodingKeys: String, CodingKey {
-        case arguments
-        case callId = "call_id"
-        case outputIndex = "output_index"
-        case itemId = "item_id"
-    }
-
-    public init(
-        arguments: String,
-        callId: String? = nil,
-        outputIndex: Int? = nil,
-        itemId: String? = nil
-    ) {
-        self.arguments = arguments
-        self.callId = callId
-        self.outputIndex = outputIndex
-        self.itemId = itemId
-    }
-}
-
 public struct ResponsesCompletedEvent: Decodable, Sendable {
     public let response: ResponsesCompletedResponse
 

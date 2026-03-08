@@ -3,18 +3,15 @@ import Foundation
 public struct TimeoutsConfiguration: Codable, Sendable {
     public let requestTimeoutSeconds: UInt64
     public let streamingEndpointTimeoutSeconds: TimeInterval
-    public let defaultEndpointTimeoutSeconds: TimeInterval
     public let httpClientTimeoutSeconds: TimeInterval
 
     public init(
         requestTimeoutSeconds: UInt64 = 300,
         streamingEndpointTimeoutSeconds: TimeInterval = 300,
-        defaultEndpointTimeoutSeconds: TimeInterval = 60,
         httpClientTimeoutSeconds: TimeInterval = 300
     ) {
         self.requestTimeoutSeconds = requestTimeoutSeconds
         self.streamingEndpointTimeoutSeconds = streamingEndpointTimeoutSeconds
-        self.defaultEndpointTimeoutSeconds = defaultEndpointTimeoutSeconds
         self.httpClientTimeoutSeconds = httpClientTimeoutSeconds
     }
 }

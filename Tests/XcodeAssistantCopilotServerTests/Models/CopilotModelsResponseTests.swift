@@ -1,6 +1,7 @@
-@testable import XcodeAssistantCopilotServer
 import Foundation
 import Testing
+
+@testable import XcodeAssistantCopilotServer
 
 @Test func copilotModelsResponseDecodesDataArray() throws {
     let json = """
@@ -10,15 +11,6 @@ import Testing
     #expect(response.allModels.count == 2)
     #expect(response.allModels[0].id == "gpt-4o")
     #expect(response.allModels[1].id == "claude-sonnet-4")
-}
-
-@Test func copilotModelsResponseDecodesModelsArray() throws {
-    let json = """
-    {"models": [{"id": "gpt-4o"}]}
-    """
-    let response = try JSONDecoder().decode(CopilotModelsResponse.self, from: Data(json.utf8))
-    #expect(response.allModels.count == 1)
-    #expect(response.allModels[0].id == "gpt-4o")
 }
 
 @Test func copilotModelsResponsePrefersDataOverModels() throws {
@@ -94,34 +86,90 @@ import Testing
     {
         "data": [
             {
-                "id": "gpt-4o",
-                "name": "GPT-4o",
-                "capabilities": {
-                    "family": "gpt-4o",
-                    "type": "chat",
-                    "supports": {
-                        "streaming": true,
-                        "tool_calls": true,
-                        "parallel_tool_calls": true,
-                        "structured_outputs": true,
-                        "vision": true
-                    }
+                "capabilities" : {
+                    "family" : "gpt-4o",
+                    "limits" : {
+                        "max_context_window_tokens" : 128000,
+                        "max_output_tokens" : 4096,
+                        "max_prompt_tokens" : 64000,
+                        "vision" : {
+                            "max_prompt_image_size" : 3145728,
+                            "max_prompt_images" : 1,
+                            "supported_media_types" : [
+                                "image/jpeg",
+                                "image/png",
+                                "image/webp",
+                                "image/gif"
+                                ]
+                        }
+                    },
+                    "object" : "model_capabilities",
+                    "supports" : {
+                        "parallel_tool_calls" : true,
+                        "streaming" : true,
+                        "tool_calls" : true,
+                        "vision" : true
+                        },
+                    "tokenizer" : "o200k_base",
+                    "type" : "chat"
                 },
-                "supported_endpoints": ["/chat/completions"]
+                "id" : "gpt-4o-2024-05-13",
+                "model_picker_enabled" : false,
+                "name" : "GPT-4o",
+                "object" : "model",
+                "preview" : false,
+                "vendor" : "Azure OpenAI",
+                "version" : "gpt-4o-2024-05-13"
             },
             {
-                "id": "gpt-5.1-codex",
-                "name": "GPT-5.1 Codex",
-                "capabilities": {
-                    "family": "gpt-5.1",
-                    "type": "chat",
-                    "supports": {
-                        "reasoning_effort": true,
-                        "streaming": true,
-                        "tool_calls": true
-                    }
+                "capabilities" : {
+                    "family" : "gpt-5.1-codex",
+                    "limits" : {
+                        "max_context_window_tokens" : 400000,
+                        "max_output_tokens" : 128000,
+                        "max_prompt_tokens" : 128000,
+                        "vision" : {
+                            "max_prompt_image_size" : 3145728,
+                            "max_prompt_images" : 1,
+                            "supported_media_types" : [
+                                "image/jpeg",
+                                "image/png",
+                                "image/webp",
+                                "image/gif"
+                            ]
+                        }
+                    },
+                    "object" : "model_capabilities",
+                    "supports" : {
+                        "parallel_tool_calls" : true,
+                        "reasoning_effort" : [
+                            "low",
+                            "medium",
+                            "high"
+                        ],
+                        "streaming" : true,
+                        "structured_outputs" : true,
+                        "tool_calls" : true,
+                        "vision" : true
+                    },
+                    "tokenizer" : "o200k_base",
+                    "type" : "chat"
                 },
-                "supported_endpoints": ["/responses"]
+                "id" : "gpt-5.1-codex",
+                "model_picker_category" : "powerful",
+                "model_picker_enabled" : true,
+                "name" : "GPT-5.1-Codex",
+                "object" : "model",
+                "policy" : {
+                    "state" : "enabled",
+                    "terms" : "Enable access to the latest GPT-5.1-Codex model from OpenAI. [Learn more about how GitHub Copilot serves GPT-5.1-Codex](https://gh.io/copilot-openai)."
+                },
+                "preview" : false,
+                "supported_endpoints" : [
+                    "/responses"
+                ],
+                "vendor" : "OpenAI",
+                "version" : "gpt-5.1-codex"
             }
         ]
     }
@@ -130,12 +178,12 @@ import Testing
     #expect(response.allModels.count == 2)
 
     let gpt4o = response.allModels[0]
-    #expect(gpt4o.supportsChatCompletions == true)
-    #expect(gpt4o.requiresResponsesAPI == false)
+    #expect(gpt4o.isUsableForChat == false)
+    #expect(gpt4o.modelPickerEnabled == false)
 
     let codex = response.allModels[1]
-    #expect(codex.requiresResponsesAPI == true)
-    #expect(codex.supportsChatCompletions == false)
+    #expect(codex.isUsableForChat == true)
+    #expect(codex.modelPickerEnabled == true)
 }
 
 @Test func copilotModelDecodesAllFields() throws {

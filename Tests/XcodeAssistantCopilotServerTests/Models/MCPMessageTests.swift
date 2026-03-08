@@ -18,7 +18,6 @@ import Testing
     let response = try JSONDecoder().decode(MCPResponse.self, from: data)
 
     #expect(response.id == 1)
-    #expect(response.isSuccess)
     #expect(response.error == nil)
     #expect(response.result?.content?.count == 1)
     #expect(response.result?.content?.first?.type == "text")
@@ -40,7 +39,6 @@ import Testing
     let response = try JSONDecoder().decode(MCPResponse.self, from: data)
 
     #expect(response.id == 2)
-    #expect(!response.isSuccess)
     #expect(response.error?.code == -32600)
     #expect(response.error?.message == "Invalid Request")
     #expect(response.result == nil)
@@ -57,7 +55,6 @@ import Testing
     let response = try JSONDecoder().decode(MCPResponse.self, from: data)
 
     #expect(response.id == 3)
-    #expect(response.isSuccess)
     #expect(response.result != nil)
     #expect(response.result?.content == nil)
     #expect(response.result?.tools == nil)
@@ -75,7 +72,6 @@ import Testing
     let response = try JSONDecoder().decode(MCPResponse.self, from: data)
 
     #expect(response.id == 4)
-    #expect(response.isSuccess)
     #expect(response.result != nil)
     #expect(response.result?.content == nil)
     #expect(response.result?.tools == nil)
@@ -171,7 +167,7 @@ import Testing
     let response = try JSONDecoder().decode(MCPResponse.self, from: data)
 
     #expect(response.id == nil)
-    #expect(response.isSuccess)
+    #expect(response.error == nil)
 }
 
 @Test func decodesResponseWithMissingId() throws {
@@ -185,7 +181,6 @@ import Testing
     let response = try JSONDecoder().decode(MCPResponse.self, from: data)
 
     #expect(response.id == nil)
-    #expect(response.isSuccess)
 }
 
 @Test func rawDictionaryContainsAllResultKeys() throws {
@@ -423,7 +418,6 @@ import Testing
     let response = MCPResponse(id: 99, result: nil, error: error)
 
     #expect(response.id == 99)
-    #expect(!response.isSuccess)
     #expect(response.error?.code == -1)
     #expect(response.error?.message == "test error")
 }
@@ -452,11 +446,6 @@ import Testing
     #expect(tool.name == "my_tool")
     #expect(tool.description == "desc")
     #expect(tool.inputSchema?["type"] != nil)
-}
-
-@Test func mcpParseErrorDescription() {
-    let error = MCPParseError.invalidJSON
-    #expect(error.description == "Failed to parse MCP response as JSON")
 }
 
 @Test func patchStructuredContentWithJSONArray() throws {

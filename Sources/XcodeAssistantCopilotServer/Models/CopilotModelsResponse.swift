@@ -56,22 +56,6 @@ public struct CopilotModel: Decodable, Sendable {
         policy = try? container.decodeIfPresent(CopilotModelPolicy.self, forKey: .policy)
     }
 
-    public var requiresResponsesAPI: Bool {
-        guard let endpoints = supportedEndpoints else { return false }
-        return endpoints.contains("/responses") && !endpoints.contains("/chat/completions")
-    }
-
-    public var supportsResponsesAPI: Bool {
-        supportedEndpoints?.contains("/responses") ?? false
-    }
-
-    public var supportsChatCompletions: Bool {
-        guard let endpoints = supportedEndpoints else {
-            return capabilities?.type == "chat"
-        }
-        return endpoints.contains("/chat/completions")
-    }
-
     public var isUsableForChat: Bool {
         guard modelPickerEnabled else { return false }
         guard policy?.isEnabled ?? true else { return false }
@@ -173,26 +157,22 @@ public struct CopilotModelSupports: Decodable, Sendable {
 
 public struct CopilotModelsResponse: Decodable, Sendable {
     public let data: [CopilotModel]?
-    public let models: [CopilotModel]?
 
     public var allModels: [CopilotModel] {
-        data ?? models ?? []
+        data ?? []
     }
 
-    public init(data: [CopilotModel]? = nil, models: [CopilotModel]? = nil) {
+    public init(data: [CopilotModel]? = nil) {
         self.data = data
-        self.models = models
     }
 
     enum CodingKeys: String, CodingKey {
         case data
-        case models
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         data = Self.decodeLenientArray(from: container, key: .data)
-        models = Self.decodeLenientArray(from: container, key: .models)
     }
 
     private static func decodeLenientArray(
