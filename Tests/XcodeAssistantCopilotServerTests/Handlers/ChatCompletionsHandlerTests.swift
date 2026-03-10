@@ -1,6 +1,8 @@
 @testable import XcodeAssistantCopilotServer
 import Foundation
 import HTTPTypes
+import Hummingbird
+import NIOCore
 import Testing
 
 private func makeHandler(
@@ -45,6 +47,25 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         model: model,
         messages: [ChatCompletionMessage(role: .user, content: .text("Hello"))]
     )
+}
+
+/// Drains the SSE body of a response returned by handleAgentStreaming so that
+/// the background Task running the agent loop has time to complete before
+/// any assertions are made on side-effects (logger messages, call counts, etc.).
+@discardableResult
+private func consumeAgentStreamBody(_ response: Response) async -> String {
+    final class CollectingWriter: ResponseBodyWriter, @unchecked Sendable {
+        var collected = ""
+        func write(_ buffer: ByteBuffer) async throws {
+            if let s = buffer.getString(at: buffer.readerIndex, length: buffer.readableBytes) {
+                collected += s
+            }
+        }
+        consuming func finish(_ trailingHeaders: HTTPFields?) async throws {}
+    }
+    let writer = CollectingWriter()
+    try? await response.body.write(writer)
+    return writer.collected
 }
 
 @Test func executeMCPToolReturnsBridgeNotAvailableWhenNoBridge() async throws {
@@ -251,6 +272,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    await consumeAgentStreamBody(response)
 
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(logger.warnMessages.contains { $0.contains("bash") && $0.contains("blocked") })
@@ -285,6 +307,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    await consumeAgentStreamBody(response)
 
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(logger.warnMessages.contains { $0.contains("rm") && $0.contains("blocked") })
@@ -317,6 +340,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    await consumeAgentStreamBody(response)
 
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(!logger.warnMessages.contains { $0.contains("blocked") })
@@ -349,6 +373,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    await consumeAgentStreamBody(response)
 
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(!logger.warnMessages.contains { $0.contains("blocked") })
@@ -381,6 +406,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    await consumeAgentStreamBody(response)
 
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(copilotAPI.streamChatCompletionsCallCount == 2)
@@ -422,6 +448,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    await consumeAgentStreamBody(response)
 
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(mcpBridge.calledTools.count == 1)
@@ -460,6 +487,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    await consumeAgentStreamBody(response)
 
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(mcpBridge.calledTools.count == 1)
@@ -495,6 +523,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    await consumeAgentStreamBody(response)
 
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(mcpBridge.calledTools.count == 1)
@@ -531,6 +560,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    await consumeAgentStreamBody(response)
 
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(mcpBridge.calledTools.isEmpty)
@@ -571,6 +601,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    await consumeAgentStreamBody(response)
 
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(logger.warnMessages.contains { $0.contains("grep") && $0.contains("Shell tool execution is not approved") })
@@ -599,6 +630,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    await consumeAgentStreamBody(response)
 
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(copilotAPI.streamChatCompletionsCallCount == 1)
@@ -632,6 +664,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    await consumeAgentStreamBody(response)
 
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(logger.warnMessages.contains { $0.contains("rm") && $0.contains("blocked") })
@@ -667,6 +700,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    await consumeAgentStreamBody(response)
 
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(mcpBridge.calledTools.count == 1)
@@ -704,6 +738,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    await consumeAgentStreamBody(response)
 
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(mcpBridge.calledTools.isEmpty)
@@ -736,6 +771,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    await consumeAgentStreamBody(response)
 
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(copilotAPI.streamChatCompletionsCallCount == 2)
@@ -771,6 +807,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    await consumeAgentStreamBody(response)
 
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(copilotAPI.streamChatCompletionsCallCount == 3)
@@ -803,6 +840,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    await consumeAgentStreamBody(response)
 
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(copilotAPI.streamChatCompletionsCallCount == 2)
@@ -832,8 +870,12 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    let body = await consumeAgentStreamBody(response)
 
-    #expect(response.status == HTTPResponse.Status.internalServerError)
+    // Errors during the agent loop are now surfaced as progress text in the SSE stream
+    // rather than as HTTP error status codes, since the response headers are sent immediately.
+    #expect(response.status == HTTPResponse.Status.ok)
+    #expect(body.contains("✗"))
     #expect(copilotAPI.streamChatCompletionsCallCount == 1)
 }
 
@@ -859,8 +901,12 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    let body = await consumeAgentStreamBody(response)
 
-    #expect(response.status == HTTPResponse.Status.internalServerError)
+    // Errors during the agent loop are now surfaced as progress text in the SSE stream
+    // rather than as HTTP error status codes, since the response headers are sent immediately.
+    #expect(response.status == HTTPResponse.Status.ok)
+    #expect(body.contains("✗"))
     #expect(copilotAPI.streamChatCompletionsCallCount == 1)
 }
 
@@ -888,6 +934,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
         request: makeRequest(),
         credentials: makeCredentials()
     )
+    await consumeAgentStreamBody(response)
 
     #expect(response.status == HTTPResponse.Status.ok)
     #expect(copilotAPI.streamChatCompletionsCallCount == 2)
@@ -1212,15 +1259,16 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
     let request = makeRequest(model: "gpt-4")
     let credentials = makeCredentials()
 
-    let task = Task {
-        await handler.handleAgentStreaming(request: request, credentials: credentials)
-    }
-
-    try await Task.sleep(for: .milliseconds(50))
-    task.cancel()
-
-    let response = await task.value
+    let response = await handler.handleAgentStreaming(request: request, credentials: credentials)
     #expect(response.status == .ok)
+
+    // Cancel by starting to consume then stopping — the onTermination callback cancels the inner Task
+    let consumeTask = Task {
+        await consumeAgentStreamBody(response)
+    }
+    try await Task.sleep(for: .milliseconds(50))
+    consumeTask.cancel()
+    _ = await consumeTask.value
 }
 
 @Test func agentStreamingReturnsEmptyResponseWhenCancelledDuringMCPToolExecution() async throws {
@@ -1245,18 +1293,22 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
     let request = makeRequest(model: "gpt-4")
     let credentials = makeCredentials()
 
-    let task = Task {
-        await handler.handleAgentStreaming(request: request, credentials: credentials)
+    let response = await handler.handleAgentStreaming(request: request, credentials: credentials)
+    #expect(response.status == .ok)
+
+    // Start consuming the stream in a task so the inner agent loop Task runs,
+    // then cancel once the MCP tool call has actually started.
+    let consumeTask = Task {
+        await consumeAgentStreamBody(response)
     }
 
     // Wait until the MCP tool call has actually started before cancelling,
     // so we are guaranteed to be testing cancellation mid-tool-execution.
     await mcpBridge.callToolGate.wait()
 
-    task.cancel()
+    consumeTask.cancel()
+    _ = await consumeTask.value
 
-    let response = await task.value
-    #expect(response.status == .ok)
     #expect(mcpBridge.calledTools.count == 1)
 }
 
@@ -1287,4 +1339,313 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
 
     _ = await handlerTask.value
     #expect(mockAPI.streamChatCompletionsCallCount == 1)
+}
+
+@Test func runAgentLoopWritesRoleDeltaFirst() async {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.tools = []
+
+    let copilotAPI = MockCopilotAPIService()
+    copilotAPI.streamChatCompletionsResults = [
+        .success(MockCopilotAPIService.makeContentStream(content: "Done."))
+    ]
+
+    let config = ServerConfiguration()
+    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge, configuration: config)
+    let writer = MockAgentStreamWriter()
+
+    await handler.runAgentLoop(
+        request: makeRequest(),
+        credentials: makeCredentials(),
+        allTools: [],
+        mcpToolNames: [],
+        writer: writer
+    )
+
+    #expect(writer.roleDeltaWritten)
+}
+
+@Test func runAgentLoopCallsFinishWhenLoopCompletes() async {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.tools = []
+
+    let copilotAPI = MockCopilotAPIService()
+    copilotAPI.streamChatCompletionsResults = [
+        .success(MockCopilotAPIService.makeContentStream(content: "Final answer."))
+    ]
+
+    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge)
+    let writer = MockAgentStreamWriter()
+
+    await handler.runAgentLoop(
+        request: makeRequest(),
+        credentials: makeCredentials(),
+        allTools: [],
+        mcpToolNames: [],
+        writer: writer
+    )
+
+    #expect(writer.finishCalled)
+}
+
+@Test func runAgentLoopPassesFinalContentToWriter() async {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.tools = []
+
+    let copilotAPI = MockCopilotAPIService()
+    copilotAPI.streamChatCompletionsResults = [
+        .success(MockCopilotAPIService.makeContentStream(content: "The answer is 42."))
+    ]
+
+    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge)
+    let writer = MockAgentStreamWriter()
+
+    await handler.runAgentLoop(
+        request: makeRequest(),
+        credentials: makeCredentials(),
+        allTools: [],
+        mcpToolNames: [],
+        writer: writer
+    )
+
+    #expect(writer.finalContent == "The answer is 42.")
+    #expect(writer.finalHadToolUse == false)
+}
+
+@Test func runAgentLoopWritesToolCallProgressBeforeExecuting() async {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.tools = [MCPTool(name: "read_file")]
+    mcpBridge.callResults = ["read_file": MCPToolResult(content: [MCPToolResultContent(type: "text", text: "struct Foo {}")])]
+
+    let copilotAPI = MockCopilotAPIService()
+    let toolCall = makeToolCall(name: "read_file", id: "call_rf", arguments: #"{"filePath":"Sources/Foo.swift"}"#)
+    copilotAPI.streamChatCompletionsResults = [
+        .success(MockCopilotAPIService.makeToolCallStream(toolCalls: [toolCall])),
+        .success(MockCopilotAPIService.makeContentStream(content: "Done."))
+    ]
+
+    let config = ServerConfiguration(
+        mcpServers: ["s": MCPServerConfiguration(type: .local, command: "cmd", allowedTools: ["read_file"])],
+        autoApprovePermissions: .kinds([.read, .mcp])
+    )
+    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge, configuration: config)
+    let writer = MockAgentStreamWriter()
+
+    await handler.runAgentLoop(
+        request: makeRequest(),
+        credentials: makeCredentials(),
+        allTools: [],
+        mcpToolNames: ["read_file"],
+        writer: writer
+    )
+
+    let combined = writer.allProgressText
+    #expect(combined.contains("`read_file`"))
+}
+
+@Test func runAgentLoopSetsHadToolUseTrueWhenMCPToolExecuted() async {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.tools = [MCPTool(name: "search")]
+    mcpBridge.callResults = ["search": MCPToolResult(content: [MCPToolResultContent(type: "text", text: "results")])]
+
+    let copilotAPI = MockCopilotAPIService()
+    let toolCall = makeToolCall(name: "search", id: "call_s")
+    copilotAPI.streamChatCompletionsResults = [
+        .success(MockCopilotAPIService.makeToolCallStream(toolCalls: [toolCall])),
+        .success(MockCopilotAPIService.makeContentStream(content: "Here are results."))
+    ]
+
+    let config = ServerConfiguration(
+        mcpServers: ["s": MCPServerConfiguration(type: .local, command: "cmd", allowedTools: ["search"])],
+        autoApprovePermissions: .kinds([.read, .mcp])
+    )
+    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge, configuration: config)
+    let writer = MockAgentStreamWriter()
+
+    await handler.runAgentLoop(
+        request: makeRequest(),
+        credentials: makeCredentials(),
+        allTools: [],
+        mcpToolNames: ["search"],
+        writer: writer
+    )
+
+    #expect(writer.finalHadToolUse == true)
+}
+
+@Test func runAgentLoopWritesWarningProgressForBlockedCLITool() async {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.tools = []
+
+    let copilotAPI = MockCopilotAPIService()
+    let cliToolCall = makeToolCall(name: "rm", id: "call_rm")
+    copilotAPI.streamChatCompletionsResults = [
+        .success(MockCopilotAPIService.makeToolCallStream(toolCalls: [cliToolCall])),
+        .success(MockCopilotAPIService.makeContentStream(content: "Cannot run rm."))
+    ]
+
+    let config = ServerConfiguration(
+        autoApprovePermissions: .kinds([.read, .mcp])
+    )
+    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge, configuration: config)
+    let writer = MockAgentStreamWriter()
+
+    await handler.runAgentLoop(
+        request: makeRequest(),
+        credentials: makeCredentials(),
+        allTools: [],
+        mcpToolNames: [],
+        writer: writer
+    )
+
+    let combined = writer.allProgressText
+    #expect(combined.contains("`rm`"))
+    #expect(combined.contains("✗"))
+}
+
+@Test func runAgentLoopWritesToolCallProgressForBlockedCLITool() async {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.tools = []
+
+    let copilotAPI = MockCopilotAPIService()
+    let cliToolCall = makeToolCall(name: "bash", id: "call_bash", arguments: #"{"command":"rm -rf /"}"#)
+    copilotAPI.streamChatCompletionsResults = [
+        .success(MockCopilotAPIService.makeToolCallStream(toolCalls: [cliToolCall])),
+        .success(MockCopilotAPIService.makeContentStream(content: "Blocked."))
+    ]
+
+    let config = ServerConfiguration(
+        autoApprovePermissions: .kinds([.read, .mcp])
+    )
+    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge, configuration: config)
+    let writer = MockAgentStreamWriter()
+
+    await handler.runAgentLoop(
+        request: makeRequest(),
+        credentials: makeCredentials(),
+        allTools: [],
+        mcpToolNames: [],
+        writer: writer
+    )
+
+    let combined = writer.allProgressText
+    #expect(combined.contains("`bash`"))
+}
+
+@Test func runAgentLoopWritesEmptyToolResultForSuccessfulMCPCall() async {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.tools = [MCPTool(name: "read_file")]
+    mcpBridge.callResults = ["read_file": MCPToolResult(content: [MCPToolResultContent(type: "text", text: "import SwiftUI")])]
+
+    let copilotAPI = MockCopilotAPIService()
+    let toolCall = makeToolCall(name: "read_file", id: "call_rf")
+    copilotAPI.streamChatCompletionsResults = [
+        .success(MockCopilotAPIService.makeToolCallStream(toolCalls: [toolCall])),
+        .success(MockCopilotAPIService.makeContentStream(content: "Done."))
+    ]
+
+    let config = ServerConfiguration(
+        mcpServers: ["s": MCPServerConfiguration(type: .local, command: "cmd", allowedTools: ["read_file"])],
+        autoApprovePermissions: .kinds([.read, .mcp])
+    )
+    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge, configuration: config)
+    let writer = MockAgentStreamWriter()
+
+    await handler.runAgentLoop(
+        request: makeRequest(),
+        credentials: makeCredentials(),
+        allTools: [],
+        mcpToolNames: ["read_file"],
+        writer: writer
+    )
+
+    // Successful non-empty tool results return empty string from formatter — nothing extra emitted beyond the tool call header
+    let nonToolCallTexts = writer.progressTexts.filter { !$0.contains("`read_file`") }
+    #expect(nonToolCallTexts.allSatisfy { !$0.contains("✗") })
+}
+
+@Test func runAgentLoopWritesWarningProgressForFailedMCPCall() async {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.tools = [MCPTool(name: "run")]
+    mcpBridge.callToolError = MCPBridgeError.toolExecutionFailed("timeout")
+
+    let copilotAPI = MockCopilotAPIService()
+    let toolCall = makeToolCall(name: "run", id: "call_run")
+    copilotAPI.streamChatCompletionsResults = [
+        .success(MockCopilotAPIService.makeToolCallStream(toolCalls: [toolCall])),
+        .success(MockCopilotAPIService.makeContentStream(content: "Failed."))
+    ]
+
+    let config = ServerConfiguration(
+        mcpServers: ["s": MCPServerConfiguration(type: .local, command: "cmd", allowedTools: ["run"])],
+        autoApprovePermissions: .kinds([.read, .mcp])
+    )
+    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge, configuration: config)
+    let writer = MockAgentStreamWriter()
+
+    await handler.runAgentLoop(
+        request: makeRequest(),
+        credentials: makeCredentials(),
+        allTools: [],
+        mcpToolNames: ["run"],
+        writer: writer
+    )
+
+    let combined = writer.allProgressText
+    #expect(combined.contains("✗"))
+}
+
+@Test func runAgentLoopPassesAllowedCLIToolCallsAsFinalToolCalls() async {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.tools = []
+
+    let copilotAPI = MockCopilotAPIService()
+    let cliToolCall = makeToolCall(name: "grep", id: "call_grep")
+    copilotAPI.streamChatCompletionsResults = [
+        .success(MockCopilotAPIService.makeToolCallStream(toolCalls: [cliToolCall]))
+    ]
+
+    let config = ServerConfiguration(
+        allowedCliTools: ["grep"],
+        autoApprovePermissions: .kinds([.read, .shell])
+    )
+    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge, configuration: config)
+    let writer = MockAgentStreamWriter()
+
+    await handler.runAgentLoop(
+        request: makeRequest(),
+        credentials: makeCredentials(),
+        allTools: [],
+        mcpToolNames: [],
+        writer: writer
+    )
+
+    #expect(writer.finalToolCalls?.count == 1)
+    #expect(writer.finalToolCalls?.first?.function.name == "grep")
+    #expect(writer.finishCalled)
+}
+
+@Test func runAgentLoopWritesStreamingErrorProgressOnCollectFailure() async {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.tools = []
+
+    let copilotAPI = MockCopilotAPIService()
+    copilotAPI.streamChatCompletionsResults = [
+        .failure(CopilotAPIError.streamingFailed("connection reset"))
+    ]
+
+    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge)
+    let writer = MockAgentStreamWriter()
+
+    await handler.runAgentLoop(
+        request: makeRequest(),
+        credentials: makeCredentials(),
+        allTools: [],
+        mcpToolNames: [],
+        writer: writer
+    )
+
+    let combined = writer.allProgressText
+    #expect(combined.contains("✗"))
+    #expect(writer.finishCalled)
 }

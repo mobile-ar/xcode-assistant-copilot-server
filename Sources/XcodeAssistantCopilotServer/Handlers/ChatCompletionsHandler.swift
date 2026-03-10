@@ -155,7 +155,6 @@ public struct ChatCompletionsHandler: Sendable {
 
     func handleAgentStreaming(request: ChatCompletionRequest, credentials: CopilotCredentials) async -> Response {
         let completionId = ChatCompletionChunk.makeCompletionId()
-        var messages = request.messages
         let model = request.model
 
         var mcpToolNames: Set<String> = []
@@ -174,12 +173,55 @@ public struct ChatCompletionsHandler: Sendable {
             }
         }
 
+        let frozenTools = allTools
+        let frozenMCPToolNames = mcpToolNames
+
+        let responseStream = AsyncStream<ByteBuffer> { continuation in
+            let writer = AgentStreamWriter(
+                continuation: continuation,
+                completionId: completionId,
+                model: model
+            )
+
+            let task = Task {
+                await runAgentLoop(
+                    request: request,
+                    credentials: credentials,
+                    allTools: frozenTools,
+                    mcpToolNames: frozenMCPToolNames,
+                    writer: writer
+                )
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+
+        return Response(status: .ok, headers: sseHeaders(), body: .init(asyncSequence: responseStream))
+    }
+
+    func runAgentLoop(
+        request: ChatCompletionRequest,
+        credentials: CopilotCredentials,
+        allTools: [Tool],
+        mcpToolNames: Set<String>,
+        writer: some AgentStreamWriterProtocol
+    ) async {
+        let formatter = AgentProgressFormatter()
+        var messages = request.messages
+        let model = request.model
         var iteration = 0
+        var hadToolUse = false
+
+        writer.writeRoleDelta()
+
 
         while iteration < Self.maxAgentLoopIterations {
             guard !Task.isCancelled else {
                 logger.debug("Agent loop cancelled before iteration \(iteration + 1)")
-                return Response(status: .ok, headers: sseHeaders(), body: .init(byteBuffer: ByteBuffer()))
+                writer.finish()
+                return
             }
             iteration += 1
             logger.debug("Agent loop iteration \(iteration)")
@@ -202,10 +244,13 @@ public struct ChatCompletionsHandler: Sendable {
                 collectedResponse = try await collectStreamedResponse(request: copilotRequest, credentials: credentials)
             } catch is CancellationError {
                 logger.debug("Agent loop cancelled at iteration \(iteration)")
-                return Response(status: .ok, headers: sseHeaders(), body: .init(byteBuffer: ByteBuffer()))
+                writer.finish()
+                return
             } catch {
                 logger.error("Agent loop failed at iteration \(iteration): \(error)")
-                return ErrorResponseBuilder.build(status: .internalServerError, type: "api_error", message: "Streaming failed: \(error)")
+                writer.writeProgressText("\n> **✗** Streaming failed: \(error)\n")
+                writer.finish()
+                return
             }
 
             let responseToolCalls = collectedResponse.toolCalls
@@ -237,15 +282,25 @@ public struct ChatCompletionsHandler: Sendable {
                     messages.append(assistantMessage)
 
                     for toolCall in mcpCalls {
+                        hadToolUse = true
+                        writer.writeProgressText(formatter.formattedToolCall(toolCall))
+
                         let toolResult: String
                         do {
                             toolResult = try await executeMCPTool(toolCall: toolCall)
                         } catch is CancellationError {
                             logger.debug("Agent loop cancelled during MCP tool execution")
-                            return Response(status: .ok, headers: sseHeaders(), body: .init(byteBuffer: ByteBuffer()))
+                            writer.finish()
+                            return
                         } catch {
                             toolResult = "Error executing tool \(toolCall.function.name ?? ""): \(error)"
                         }
+
+                        let formattedResult = formatter.formattedToolResult(toolResult)
+                        if !formattedResult.isEmpty {
+                            writer.writeProgressText(formattedResult)
+                        }
+
                         let toolMessage = ChatCompletionMessage(
                             role: .tool,
                             content: .text(toolResult),
@@ -255,8 +310,11 @@ public struct ChatCompletionsHandler: Sendable {
                     }
 
                     for blocked in blockedCliCalls {
+                        hadToolUse = true
                         let reason = shellApproved ? "Tool '\(blocked.function.name ?? "")' is not in the allowed CLI tools list." : "Shell tool execution is not approved. Add 'shell' to autoApprovePermissions."
                         logger.warn("CLI tool '\(blocked.function.name ?? "")' blocked: \(reason)")
+                        writer.writeProgressText(formatter.formattedToolCall(blocked))
+                        writer.writeProgressText("\n> **✗** \(reason)\n")
                         let toolMessage = ChatCompletionMessage(
                             role: .tool,
                             content: .text("Error: \(reason)"),
@@ -267,12 +325,9 @@ public struct ChatCompletionsHandler: Sendable {
 
                     if !allowedCliCalls.isEmpty {
                         logger.info("Agent loop completed after \(iteration) iteration(s), returning \(allowedCliCalls.count) allowed CLI tool call(s) to client")
-                        return buildBufferedStreamingResponse(
-                            completionId: completionId,
-                            model: model,
-                            content: responseContent,
-                            toolCalls: allowedCliCalls
-                        )
+                        writer.writeFinalContent(responseContent, toolCalls: allowedCliCalls, hadToolUse: hadToolUse)
+                        writer.finish()
+                        return
                     }
 
                     if !blockedCliCalls.isEmpty && mcpCalls.isEmpty {
@@ -285,31 +340,21 @@ public struct ChatCompletionsHandler: Sendable {
                     continue
                 } else {
                     logger.info("Agent loop completed after \(iteration) iteration(s), streaming buffered response with tool calls")
-                    return buildBufferedStreamingResponse(
-                        completionId: completionId,
-                        model: model,
-                        content: responseContent,
-                        toolCalls: responseToolCalls
-                    )
+                    writer.writeFinalContent(responseContent, toolCalls: responseToolCalls, hadToolUse: hadToolUse)
+                    writer.finish()
+                    return
                 }
             } else {
                 logger.info("Agent loop completed after \(iteration) iteration(s), streaming buffered response")
-                return buildBufferedStreamingResponse(
-                    completionId: completionId,
-                    model: model,
-                    content: responseContent,
-                    toolCalls: nil
-                )
+                writer.writeFinalContent(responseContent, toolCalls: nil, hadToolUse: hadToolUse)
+                writer.finish()
+                return
             }
         }
 
         logger.warn("Agent loop hit maximum iterations (\(Self.maxAgentLoopIterations))")
-        return buildBufferedStreamingResponse(
-            completionId: completionId,
-            model: model,
-            content: "",
-            toolCalls: nil
-        )
+        writer.writeFinalContent("", toolCalls: nil, hadToolUse: hadToolUse)
+        writer.finish()
     }
 
 
@@ -430,67 +475,7 @@ public struct ChatCompletionsHandler: Sendable {
         }
     }
 
-    private func buildBufferedStreamingResponse(
-        completionId: String,
-        model: String,
-        content: String,
-        toolCalls: [ToolCall]?
-    ) -> Response {
-        let responseStream = AsyncStream<ByteBuffer> { continuation in
-            let encoder = JSONEncoder()
 
-            let roleChunk = ChatCompletionChunk.makeRoleDelta(id: completionId, model: model)
-            if let data = try? encoder.encode(roleChunk),
-               let jsonString = String(data: data, encoding: .utf8) {
-                continuation.yield(ByteBuffer(string: "data: \(jsonString)\n\n"))
-            }
-
-            if !content.isEmpty {
-                let contentChunk = ChatCompletionChunk.makeContentDelta(
-                    id: completionId,
-                    model: model,
-                    content: content
-                )
-                if let data = try? encoder.encode(contentChunk),
-                   let jsonString = String(data: data, encoding: .utf8) {
-                    continuation.yield(ByteBuffer(string: "data: \(jsonString)\n\n"))
-                }
-            }
-
-            if let toolCalls, !toolCalls.isEmpty {
-                let toolCallChunk = ChatCompletionChunk.makeToolCallDelta(
-                    id: completionId,
-                    model: model,
-                    toolCalls: toolCalls
-                )
-                if let data = try? encoder.encode(toolCallChunk),
-                   let jsonString = String(data: data, encoding: .utf8) {
-                    continuation.yield(ByteBuffer(string: "data: \(jsonString)\n\n"))
-                }
-
-                let finishChunk = ChatCompletionChunk(
-                    id: completionId,
-                    model: model,
-                    choices: [ChunkChoice(delta: ChunkDelta(), finishReason: "tool_calls")]
-                )
-                if let data = try? encoder.encode(finishChunk),
-                   let jsonString = String(data: data, encoding: .utf8) {
-                    continuation.yield(ByteBuffer(string: "data: \(jsonString)\n\n"))
-                }
-            } else {
-                let stopChunk = ChatCompletionChunk.makeStopDelta(id: completionId, model: model)
-                if let data = try? encoder.encode(stopChunk),
-                   let jsonString = String(data: data, encoding: .utf8) {
-                    continuation.yield(ByteBuffer(string: "data: \(jsonString)\n\n"))
-                }
-            }
-
-            continuation.yield(ByteBuffer(string: "data: [DONE]\n\n"))
-            continuation.finish()
-        }
-
-        return Response(status: .ok, headers: sseHeaders(), body: .init(asyncSequence: responseStream))
-    }
 
     private func streamForModel(copilotRequest: CopilotChatRequest, credentials: CopilotCredentials) async throws -> AsyncThrowingStream<SSEEvent, Error> {
         var currentRequest = await resolveReasoningEffort(for: copilotRequest)
