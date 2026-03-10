@@ -143,10 +143,7 @@ public struct ConfigurationLoader: ConfigurationLoaderProtocol {
         return FileManager.default.currentDirectoryPath + "/" + path
     }
 
-    private func resolveServerPaths(
-        in configuration: ServerConfiguration,
-        configDir: String
-    ) -> ServerConfiguration {
+    private func resolveServerPaths(in configuration: ServerConfiguration, configDir: String) -> ServerConfiguration {
         var resolvedServers: [String: MCPServerConfiguration] = [:]
 
         for (name, server) in configuration.mcpServers {

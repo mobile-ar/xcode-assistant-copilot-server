@@ -357,8 +357,6 @@ public struct ChatCompletionsHandler: Sendable {
         writer.finish()
     }
 
-
-
     private func collectStreamedResponse(request: CopilotChatRequest, credentials: CopilotCredentials) async throws -> CollectedResponse {
         let eventStream = try await streamForModel(copilotRequest: request, credentials: credentials)
 
@@ -474,8 +472,6 @@ public struct ChatCompletionsHandler: Sendable {
             return "Error executing tool \(toolName): \(error)"
         }
     }
-
-
 
     private func streamForModel(copilotRequest: CopilotChatRequest, credentials: CopilotCredentials) async throws -> AsyncThrowingStream<SSEEvent, Error> {
         var currentRequest = await resolveReasoningEffort(for: copilotRequest)
