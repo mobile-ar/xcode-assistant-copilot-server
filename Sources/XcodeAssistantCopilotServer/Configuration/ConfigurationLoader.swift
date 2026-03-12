@@ -36,28 +36,35 @@ public struct ConfigurationLoader: ConfigurationLoaderProtocol {
     }()
 
     static let defaultConfigJSON: String = """
-        {
-          "mcpServers": {
-            "xcode": {
-              "type": "local",
-              "command": "xcrun",
-              "args": ["mcpbridge"],
-              "allowedTools": ["*"]
-            }
-          },
-          "allowedCliTools": [],
-          "bodyLimitMiB": 4,
-          "excludedFilePatterns": [],
-          "reasoningEffort": "xhigh",
-          "autoApprovePermissions": ["read", "mcp"],
-          "timeouts": {
-            "requestTimeoutSeconds": 300,
-            "streamingEndpointTimeoutSeconds": 300,
-            "httpClientTimeoutSeconds": 300
-          },
-          "maxAgentLoopIterations": 40
+    {
+      "allowedCliTools" : [],
+      "autoApprovePermissions" : [
+        "read",
+        "mcp"
+      ],
+      "bodyLimitMiB" : 4,
+      "excludedFilePatterns" : [],
+      "maxAgentLoopIterations" : 40,
+      "mcpServers" : {
+        "xcode" : {
+          "allowedTools" : [
+            "*"
+          ],
+          "args" : [
+            "mcpbridge"
+          ],
+          "command" : "xcrun",
+          "type" : "local"
         }
-        """
+      },
+      "reasoningEffort" : "xhigh",
+      "timeouts" : {
+        "httpClientTimeoutSeconds" : 300,
+        "requestTimeoutSeconds" : 300,
+        "streamingEndpointTimeoutSeconds" : 300
+      }
+    }
+    """
 
     public init(logger: LoggerProtocol) {
         self.logger = logger
