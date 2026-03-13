@@ -222,7 +222,7 @@ public actor MCPBridgeService: MCPBridgeServiceProtocol {
 
     private func initialize() async throws {
         let params: [String: AnyCodable] = [
-            "protocolVersion": AnyCodable(.string("2024-11-05")),
+            "protocolVersion": AnyCodable(.string("2025-11-25")),
             "capabilities": AnyCodable(.dictionary([:])),
             "clientInfo": AnyCodable(.dictionary([
                 "name": AnyCodable(.string(clientName)),
