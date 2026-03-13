@@ -87,7 +87,9 @@ struct App: AsyncParsableCommand {
                 let bridge = MCPBridgeService(
                     serverConfig: serverConfig,
                     logger: logger,
-                    pidFile: pidFile
+                    pidFile: pidFile,
+                    clientName: App.configuration.commandName ?? "xcode-assistant-copilot-server",
+                    clientVersion: appVersion
                 )
                 do {
                     logger.info("Starting MCP bridge...")

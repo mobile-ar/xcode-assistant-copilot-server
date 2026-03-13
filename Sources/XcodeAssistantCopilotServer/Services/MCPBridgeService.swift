@@ -40,6 +40,8 @@ public actor MCPBridgeService: MCPBridgeServiceProtocol {
     private let serverConfig: MCPServerConfiguration
     private let logger: LoggerProtocol
     private let pidFile: MCPBridgePIDFileProtocol?
+    private let clientName: String
+    private let clientVersion: String
     private var process: Process?
     private var stdinPipe: Pipe?
     private var stdoutPipe: Pipe?
@@ -57,11 +59,15 @@ public actor MCPBridgeService: MCPBridgeServiceProtocol {
     public init(
         serverConfig: MCPServerConfiguration,
         logger: LoggerProtocol,
-        pidFile: MCPBridgePIDFileProtocol? = nil
+        pidFile: MCPBridgePIDFileProtocol? = nil,
+        clientName: String,
+        clientVersion: String
     ) {
         self.serverConfig = serverConfig
         self.logger = logger
         self.pidFile = pidFile
+        self.clientName = clientName
+        self.clientVersion = clientVersion
     }
 
     public func start() async throws {
@@ -219,8 +225,8 @@ public actor MCPBridgeService: MCPBridgeServiceProtocol {
             "protocolVersion": AnyCodable(.string("2024-11-05")),
             "capabilities": AnyCodable(.dictionary([:])),
             "clientInfo": AnyCodable(.dictionary([
-                "name": AnyCodable(.string("xcode-assistant-copilot-server")),
-                "version": AnyCodable(.string("1.0.0")),
+                "name": AnyCodable(.string(clientName)),
+                "version": AnyCodable(.string(clientVersion)),
             ])),
         ]
 
@@ -333,7 +339,7 @@ public actor MCPBridgeService: MCPBridgeServiceProtocol {
                 if let text = String(data: data, encoding: .utf8) {
                     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty {
-                        logger.debug("MCP bridge stderr: \(trimmed)")
+                        logger.error("MCP bridge stderr: \(trimmed)")
                     }
                 }
             }
