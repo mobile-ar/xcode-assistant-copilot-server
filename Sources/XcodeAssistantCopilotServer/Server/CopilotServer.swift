@@ -9,7 +9,7 @@ public struct CopilotServer: Sendable {
     private let configurationStore: ConfigurationStore
     private let authService: AuthServiceProtocol
     private let copilotAPI: CopilotAPIServiceProtocol
-    private let mcpBridge: MCPBridgeServiceProtocol?
+    private let bridgeHolder: MCPBridgeHolder
 
     public init(
         port: Int,
@@ -17,19 +17,19 @@ public struct CopilotServer: Sendable {
         configurationStore: ConfigurationStore,
         authService: AuthServiceProtocol,
         copilotAPI: CopilotAPIServiceProtocol,
-        mcpBridge: MCPBridgeServiceProtocol? = nil
+        bridgeHolder: MCPBridgeHolder
     ) {
         self.port = port
         self.logger = logger
         self.configurationStore = configurationStore
         self.authService = authService
         self.copilotAPI = copilotAPI
-        self.mcpBridge = mcpBridge
+        self.bridgeHolder = bridgeHolder
     }
 
     public func run() async throws {
         let healthHandler = HealthHandler(
-            mcpBridge: mcpBridge,
+            bridgeHolder: bridgeHolder,
             logger: logger
         )
 
@@ -45,7 +45,7 @@ public struct CopilotServer: Sendable {
         let completionsHandler = ChatCompletionsHandler(
             authService: authService,
             copilotAPI: copilotAPI,
-            mcpBridge: mcpBridge,
+            bridgeHolder: bridgeHolder,
             modelEndpointResolver: modelEndpointResolver,
             reasoningEffortResolver: reasoningEffortResolver,
             configurationStore: configurationStore,
@@ -85,7 +85,8 @@ public struct CopilotServer: Sendable {
         logger.info("Starting server on http://127.0.0.1:\(port)")
         logger.info("Routes: \(registry.summary())")
 
-        if mcpBridge != nil {
+        let isBridgeEnabled = await bridgeHolder.bridge != nil
+        if isBridgeEnabled {
             logger.info("MCP bridge enabled (agent mode)")
         } else {
             logger.info("MCP bridge disabled (direct proxy mode)")

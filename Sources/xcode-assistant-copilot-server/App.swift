@@ -85,37 +85,23 @@ struct App: AsyncParsableCommand {
             configurationStore: configurationStore
         )
 
-        var mcpBridge: MCPBridgeServiceProtocol?
+        let clientName = App.configuration.commandName ?? "xcode-assistant-copilot-server"
+        let bridgeHolder = MCPBridgeHolder()
 
-        if configuration.hasLocalMCPServers {
-            if let (_, serverConfig) = configuration.mcpServers.first(where: {
-                $0.value.type == .local || $0.value.type == .stdio
-            }) {
-                let bridge = MCPBridgeService(
-                    serverConfig: serverConfig,
-                    logger: logger,
-                    pidFile: pidFile,
-                    clientName: App.configuration.commandName ?? "xcode-assistant-copilot-server",
-                    clientVersion: appVersion
-                )
-                do {
-                    logger.info("Starting MCP bridge...")
-                    try await bridge.start()
-                    mcpBridge = bridge
-                    logger.info("MCP bridge is ready")
-                } catch {
-                    logger.warn("MCP bridge failed to start: \(error)")
-                    logger.warn("Continuing without MCP support")
-                }
-            }
-        }
-
-        let bridgeHolder = MCPBridgeHolder(mcpBridge)
+        await applyBridge(
+            from: configuration,
+            to: bridgeHolder,
+            logger: logger,
+            pidFile: pidFile,
+            clientName: clientName,
+            clientVersion: appVersion,
+            processRunner: processRunner
+        )
 
         let signalHandler = SignalHandler(logger: logger)
         signalHandler.monitorSignals { signal in
             logger.info("Stopping MCP bridge due to signal \(signal)...")
-            if let bridge = await bridgeHolder.bridge as? MCPBridgeService {
+            if let bridge = await bridgeHolder.bridge {
                 try? await bridge.stop()
             }
         }
@@ -126,7 +112,7 @@ struct App: AsyncParsableCommand {
             configurationStore: configurationStore,
             authService: authService,
             copilotAPI: copilotAPI,
-            mcpBridge: await bridgeHolder.bridge
+            bridgeHolder: bridgeHolder
         )
 
         // The task group uses Bool to identify which task completed first.
@@ -158,34 +144,24 @@ struct App: AsyncParsableCommand {
                     case .mcpRestart(let updated):
                         logger.info("MCP servers changed — restarting MCP bridge...")
 
-                        if let bridge = await bridgeHolder.bridge as? MCPBridgeService {
+                        if let bridge = await bridgeHolder.bridge {
                             try? await bridge.stop()
                             await bridgeHolder.setBridge(nil)
                         }
 
-                        if let (_, serverConfig) = updated.mcpServers.first(where: {
-                            $0.value.type == .local || $0.value.type == .stdio
-                        }) {
-                            let newBridge = MCPBridgeService(
-                                serverConfig: serverConfig,
-                                logger: logger,
-                                pidFile: pidFile,
-                                clientName: App.configuration.commandName ?? "xcode-assistant-copilot-server",
-                                clientVersion: appVersion
-                            )
-                            do {
-                                try await newBridge.start()
-                                await bridgeHolder.setBridge(newBridge)
-                                await configurationStore.update(updated)
-                                logger.info("MCP bridge restarted successfully")
-                            } catch {
-                                logger.warn("MCP bridge failed to restart: \(error)")
-                                logger.warn("Continuing without MCP support")
-                                await bridgeHolder.setBridge(nil)
-                                await configurationStore.update(updated)
-                            }
-                        } else {
-                            await configurationStore.update(updated)
+                        await applyBridge(
+                            from: updated,
+                            to: bridgeHolder,
+                            logger: logger,
+                            pidFile: pidFile,
+                            clientName: clientName,
+                            clientVersion: appVersion,
+                            processRunner: processRunner
+                        )
+                        await configurationStore.update(updated)
+
+                        if await bridgeHolder.bridge != nil {
+                            logger.info("MCP bridge restarted successfully")
                         }
 
                     case .requiresManualRestart(let reason):
@@ -209,7 +185,7 @@ struct App: AsyncParsableCommand {
             }
         }
 
-        if let bridge = await bridgeHolder.bridge as? MCPBridgeService {
+        if let bridge = await bridgeHolder.bridge {
             logger.info("Stopping MCP bridge...")
             try? await bridge.stop()
             logger.info("MCP bridge stopped")
@@ -217,14 +193,33 @@ struct App: AsyncParsableCommand {
     }
 }
 
-actor MCPBridgeHolder {
-    private(set) var bridge: MCPBridgeServiceProtocol?
-
-    init(_ bridge: MCPBridgeServiceProtocol?) {
-        self.bridge = bridge
+private func applyBridge(
+    from configuration: ServerConfiguration,
+    to holder: MCPBridgeHolder,
+    logger: LoggerProtocol,
+    pidFile: MCPBridgePIDFileProtocol,
+    clientName: String,
+    clientVersion: String,
+    processRunner: ProcessRunnerProtocol
+) async {
+    guard let bridge = MCPBridgeFactory.make(
+        from: configuration,
+        logger: logger,
+        pidFile: pidFile,
+        clientName: clientName,
+        clientVersion: clientVersion,
+        processRunner: processRunner
+    ) else {
+        return
     }
 
-    func setBridge(_ bridge: MCPBridgeServiceProtocol?) {
-        self.bridge = bridge
+    do {
+        logger.info("Starting MCP bridge...")
+        try await bridge.start()
+        await holder.setBridge(bridge)
+        logger.info("MCP bridge is ready")
+    } catch {
+        logger.warn("MCP bridge failed to start: \(error)")
+        logger.warn("Continuing without MCP support")
     }
 }

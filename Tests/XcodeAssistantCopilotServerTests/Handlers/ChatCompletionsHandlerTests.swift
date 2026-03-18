@@ -9,7 +9,7 @@ import Testing
 private func makeHandler(
     authService: AuthServiceProtocol = MockAuthService(),
     copilotAPI: CopilotAPIServiceProtocol = MockCopilotAPIService(),
-    mcpBridge: MCPBridgeServiceProtocol? = nil,
+    bridgeHolder: MCPBridgeHolder = MCPBridgeHolder(),
     modelEndpointResolver: ModelEndpointResolverProtocol = MockModelEndpointResolver(),
     reasoningEffortResolver: ReasoningEffortResolverProtocol = MockReasoningEffortResolver(),
     configurationStore: ConfigurationStore = ConfigurationStore(initial: ServerConfiguration()),
@@ -18,7 +18,7 @@ private func makeHandler(
     ChatCompletionsHandler(
         authService: authService,
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: bridgeHolder,
         modelEndpointResolver: modelEndpointResolver,
         reasoningEffortResolver: reasoningEffortResolver,
         configurationStore: configurationStore,
@@ -78,7 +78,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
 }
 
 @Test func executeMCPToolReturnsBridgeNotAvailableWhenNoBridge() async throws {
-    let handler = makeHandler(mcpBridge: nil)
+    let handler = makeHandler(bridgeHolder: MCPBridgeHolder())
     let toolCall = makeToolCall(name: "search")
 
     let result = try await handler.executeMCPTool(toolCall: toolCall)
@@ -97,7 +97,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         autoApprovePermissions: .kinds([.read])
     )
     let handler = makeHandler(
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
     )
@@ -120,7 +120,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         mcpServers: ["s": MCPServerConfiguration(type: .local, command: "cmd", allowedTools: ["read_file"])],
         autoApprovePermissions: .all(false)
     )
-    let handler = makeHandler(mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config))
+    let handler = makeHandler(bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config))
     let toolCall = makeToolCall(name: "read_file")
 
     let result = try await handler.executeMCPTool(toolCall: toolCall)
@@ -140,7 +140,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         autoApprovePermissions: .kinds([.read, .mcp])
     )
     let handler = makeHandler(
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
     )
@@ -162,7 +162,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         mcpServers: [:],
         autoApprovePermissions: .kinds([.mcp])
     )
-    let handler = makeHandler(mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config))
+    let handler = makeHandler(bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config))
     let toolCall = makeToolCall(name: "search")
 
     let result = try await handler.executeMCPTool(toolCall: toolCall)
@@ -179,7 +179,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         mcpServers: ["server1": MCPServerConfiguration(type: .local, command: "cmd", allowedTools: ["search"])],
         autoApprovePermissions: .kinds([.read, .mcp])
     )
-    let handler = makeHandler(mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config))
+    let handler = makeHandler(bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config))
     let toolCall = makeToolCall(name: "search")
 
     let result = try await handler.executeMCPTool(toolCall: toolCall)
@@ -197,7 +197,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         mcpServers: ["s": MCPServerConfiguration(type: .local, command: "cmd", allowedTools: ["*"])],
         autoApprovePermissions: .all(true)
     )
-    let handler = makeHandler(mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config))
+    let handler = makeHandler(bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config))
     let toolCall = makeToolCall(name: "search")
 
     let result = try await handler.executeMCPTool(toolCall: toolCall)
@@ -214,7 +214,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         mcpServers: ["s": MCPServerConfiguration(type: .local, command: "cmd", allowedTools: ["*"])],
         autoApprovePermissions: .kinds([.mcp])
     )
-    let handler = makeHandler(mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config))
+    let handler = makeHandler(bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config))
     let toolCall = makeToolCall(name: "any_tool")
 
     let result = try await handler.executeMCPTool(toolCall: toolCall)
@@ -231,7 +231,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         mcpServers: ["s": MCPServerConfiguration(type: .local, command: "cmd", allowedTools: ["search"])],
         autoApprovePermissions: .kinds([.mcp])
     )
-    let handler = makeHandler(mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config), logger: logger)
+    let handler = makeHandler(bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config), logger: logger)
     let toolCall = makeToolCall(name: "search")
 
     let result = try await handler.executeMCPTool(toolCall: toolCall)
@@ -246,7 +246,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         mcpServers: [:],
         autoApprovePermissions: .kinds([.read])
     )
-    let handler = makeHandler(mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config))
+    let handler = makeHandler(bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config))
     let toolCall = makeToolCall(name: "search")
 
     let result = try await handler.executeMCPTool(toolCall: toolCall)
@@ -272,7 +272,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     )
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
     )
@@ -307,7 +307,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     )
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
     )
@@ -340,7 +340,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     )
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
     )
@@ -373,7 +373,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     )
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
     )
@@ -406,7 +406,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     )
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
     )
@@ -448,7 +448,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     )
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
     )
@@ -487,7 +487,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     )
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
     )
@@ -523,7 +523,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     )
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
     )
@@ -560,7 +560,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     )
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
     )
@@ -601,7 +601,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     )
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
     )
@@ -630,7 +630,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     let logger = MockLogger()
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         logger: logger
     )
 
@@ -663,7 +663,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     )
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
     )
@@ -699,7 +699,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     )
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
     )
@@ -737,7 +737,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     )
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
     )
@@ -769,7 +769,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     let config = ServerConfiguration(reasoningEffort: .xhigh)
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         reasoningEffortResolver: reasoningResolver,
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
@@ -805,7 +805,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     let config = ServerConfiguration(reasoningEffort: .xhigh)
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         reasoningEffortResolver: reasoningResolver,
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
@@ -838,7 +838,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     let config = ServerConfiguration(reasoningEffort: .low)
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         reasoningEffortResolver: reasoningResolver,
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
@@ -869,7 +869,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     let config = ServerConfiguration(reasoningEffort: .xhigh)
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
     )
@@ -900,7 +900,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     let config = ServerConfiguration(reasoningEffort: nil)
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
     )
@@ -933,7 +933,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     let config = ServerConfiguration(reasoningEffort: .high)
     let handler = makeHandler(
         copilotAPI: copilotAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config),
         logger: logger
     )
@@ -1092,7 +1092,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         mcpServers: ["xcode": MCPServerConfiguration(type: .local, command: "xcrun", allowedTools: ["*"])],
         autoApprovePermissions: .all(true)
     )
-    let handler = makeHandler(mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config), logger: logger)
+    let handler = makeHandler(bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config), logger: logger)
     let toolCall = makeToolCall(
         name: "XcodeUpdate",
         arguments: #"{"tabIdentifier":"UserSummaryView.swift","filePath":"Sumatron2/Screens/Profile/UserSummaryView.swift","oldString":"old","newString":"new"}"#
@@ -1122,7 +1122,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         mcpServers: ["xcode": MCPServerConfiguration(type: .local, command: "xcrun", allowedTools: ["*"])],
         autoApprovePermissions: .all(true)
     )
-    let handler = makeHandler(mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config))
+    let handler = makeHandler(bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config))
     let toolCall = makeToolCall(
         name: "XcodeRead",
         arguments: #"{"tabIdentifier":"HomeView.swift","filePath":"spark-app-ios/Spark/Views/HomeView.swift"}"#
@@ -1150,7 +1150,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         mcpServers: ["xcode": MCPServerConfiguration(type: .local, command: "xcrun", allowedTools: ["*"])],
         autoApprovePermissions: .all(true)
     )
-    let handler = makeHandler(mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config))
+    let handler = makeHandler(bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config))
     let toolCall = makeToolCall(
         name: "XcodeGrep",
         arguments: #"{"tabIdentifier":"someFile.swift","filePath":"OtherProject/SomeFile.swift","pattern":"foo"}"#
@@ -1175,7 +1175,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         mcpServers: ["xcode": MCPServerConfiguration(type: .local, command: "xcrun", allowedTools: ["*"])],
         autoApprovePermissions: .all(true)
     )
-    let handler = makeHandler(mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config))
+    let handler = makeHandler(bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config))
     let toolCall = makeToolCall(name: "XcodeUpdate", arguments: #"{"tabIdentifier":"foo","filePath":"Foo/Bar.swift","oldString":"a","newString":"b"}"#)
 
     let result = try await handler.executeMCPTool(toolCall: toolCall)
@@ -1199,7 +1199,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         mcpServers: ["xcode": MCPServerConfiguration(type: .local, command: "xcrun", allowedTools: ["*"])],
         autoApprovePermissions: .all(true)
     )
-    let handler = makeHandler(mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config))
+    let handler = makeHandler(bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config))
     let toolCall = makeToolCall(
         name: "ExecuteSnippet",
         arguments: #"{"tabIdentifier":"bad","sourceFilePath":"MyApp/Sources/Main.swift","codeSnippet":"print(1)"}"#
@@ -1221,7 +1221,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         mcpServers: ["s": MCPServerConfiguration(type: .local, command: "cmd", allowedTools: ["*"])],
         autoApprovePermissions: .all(true)
     )
-    let handler = makeHandler(mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config))
+    let handler = makeHandler(bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config))
     let toolCall = makeToolCall(name: "slow_tool")
 
     let task = Task {
@@ -1261,7 +1261,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     )
     let handler = makeHandler(
         copilotAPI: mockAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config)
     )
     let request = makeRequest(model: "gpt-4")
@@ -1295,7 +1295,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     )
     let handler = makeHandler(
         copilotAPI: mockAPI,
-        mcpBridge: mcpBridge,
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
         configurationStore: ConfigurationStore(initial: config)
     )
     let request = makeRequest(model: "gpt-4")
@@ -1359,7 +1359,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     ]
 
     let config = ServerConfiguration()
-    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config))
+    let handler = makeHandler(copilotAPI: copilotAPI, bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config))
     let writer = MockAgentStreamWriter()
 
     await handler.runAgentLoop(
@@ -1382,7 +1382,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         .success(MockCopilotAPIService.makeContentStream(content: "Final answer."))
     ]
 
-    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge)
+    let handler = makeHandler(copilotAPI: copilotAPI, bridgeHolder: MCPBridgeHolder(mcpBridge))
     let writer = MockAgentStreamWriter()
 
     await handler.runAgentLoop(
@@ -1405,7 +1405,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         .success(MockCopilotAPIService.makeContentStream(content: "The answer is 42."))
     ]
 
-    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge)
+    let handler = makeHandler(copilotAPI: copilotAPI, bridgeHolder: MCPBridgeHolder(mcpBridge))
     let writer = MockAgentStreamWriter()
 
     await handler.runAgentLoop(
@@ -1436,7 +1436,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         mcpServers: ["s": MCPServerConfiguration(type: .local, command: "cmd", allowedTools: ["read_file"])],
         autoApprovePermissions: .kinds([.read, .mcp])
     )
-    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config))
+    let handler = makeHandler(copilotAPI: copilotAPI, bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config))
     let writer = MockAgentStreamWriter()
 
     await handler.runAgentLoop(
@@ -1467,7 +1467,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         mcpServers: ["s": MCPServerConfiguration(type: .local, command: "cmd", allowedTools: ["search"])],
         autoApprovePermissions: .kinds([.read, .mcp])
     )
-    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config))
+    let handler = makeHandler(copilotAPI: copilotAPI, bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config))
     let writer = MockAgentStreamWriter()
 
     await handler.runAgentLoop(
@@ -1495,7 +1495,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     let config = ServerConfiguration(
         autoApprovePermissions: .kinds([.read, .mcp])
     )
-    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config))
+    let handler = makeHandler(copilotAPI: copilotAPI, bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config))
     let writer = MockAgentStreamWriter()
 
     await handler.runAgentLoop(
@@ -1525,7 +1525,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     let config = ServerConfiguration(
         autoApprovePermissions: .kinds([.read, .mcp])
     )
-    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config))
+    let handler = makeHandler(copilotAPI: copilotAPI, bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config))
     let writer = MockAgentStreamWriter()
 
     await handler.runAgentLoop(
@@ -1556,7 +1556,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         mcpServers: ["s": MCPServerConfiguration(type: .local, command: "cmd", allowedTools: ["read_file"])],
         autoApprovePermissions: .kinds([.read, .mcp])
     )
-    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config))
+    let handler = makeHandler(copilotAPI: copilotAPI, bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config))
     let writer = MockAgentStreamWriter()
 
     await handler.runAgentLoop(
@@ -1588,7 +1588,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         mcpServers: ["s": MCPServerConfiguration(type: .local, command: "cmd", allowedTools: ["run"])],
         autoApprovePermissions: .kinds([.read, .mcp])
     )
-    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config))
+    let handler = makeHandler(copilotAPI: copilotAPI, bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config))
     let writer = MockAgentStreamWriter()
 
     await handler.runAgentLoop(
@@ -1617,7 +1617,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         allowedCliTools: ["grep"],
         autoApprovePermissions: .kinds([.read, .shell])
     )
-    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge, configurationStore: ConfigurationStore(initial: config))
+    let handler = makeHandler(copilotAPI: copilotAPI, bridgeHolder: MCPBridgeHolder(mcpBridge), configurationStore: ConfigurationStore(initial: config))
     let writer = MockAgentStreamWriter()
 
     await handler.runAgentLoop(
@@ -1642,7 +1642,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         .failure(CopilotAPIError.streamingFailed("connection reset"))
     ]
 
-    let handler = makeHandler(copilotAPI: copilotAPI, mcpBridge: mcpBridge)
+    let handler = makeHandler(copilotAPI: copilotAPI, bridgeHolder: MCPBridgeHolder(mcpBridge))
     let writer = MockAgentStreamWriter()
 
     await handler.runAgentLoop(

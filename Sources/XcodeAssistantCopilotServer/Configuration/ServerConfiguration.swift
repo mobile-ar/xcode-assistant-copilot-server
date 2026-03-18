@@ -190,6 +190,10 @@ public struct ServerConfiguration: Codable, Sendable {
         mcpServers.values.contains { $0.type == .local || $0.type == .stdio }
     }
 
+    public var localMCPServers: [String: MCPServerConfiguration] {
+        mcpServers.filter { $0.value.type == .local || $0.value.type == .stdio }
+    }
+
     public func isCliToolAllowed(_ toolName: String) -> Bool {
         allowedCliTools.contains("*") || allowedCliTools.contains(toolName)
     }

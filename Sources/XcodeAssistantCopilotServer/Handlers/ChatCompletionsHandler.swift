@@ -6,7 +6,7 @@ import NIOCore
 public struct ChatCompletionsHandler: Sendable {
     private let authService: AuthServiceProtocol
     private let copilotAPI: CopilotAPIServiceProtocol
-    private let mcpBridge: MCPBridgeServiceProtocol?
+    private let bridgeHolder: MCPBridgeHolder
     private let modelEndpointResolver: ModelEndpointResolverProtocol
     private let reasoningEffortResolver: ReasoningEffortResolverProtocol
     private let responsesTranslator: ResponsesAPITranslator
@@ -18,7 +18,7 @@ public struct ChatCompletionsHandler: Sendable {
     public init(
         authService: AuthServiceProtocol,
         copilotAPI: CopilotAPIServiceProtocol,
-        mcpBridge: MCPBridgeServiceProtocol?,
+        bridgeHolder: MCPBridgeHolder,
         modelEndpointResolver: ModelEndpointResolverProtocol,
         reasoningEffortResolver: ReasoningEffortResolverProtocol,
         configurationStore: ConfigurationStore,
@@ -26,7 +26,7 @@ public struct ChatCompletionsHandler: Sendable {
     ) {
         self.authService = authService
         self.copilotAPI = copilotAPI
-        self.mcpBridge = mcpBridge
+        self.bridgeHolder = bridgeHolder
         self.modelEndpointResolver = modelEndpointResolver
         self.reasoningEffortResolver = reasoningEffortResolver
         self.responsesTranslator = ResponsesAPITranslator(logger: logger)
@@ -69,7 +69,7 @@ public struct ChatCompletionsHandler: Sendable {
                 return ErrorResponseBuilder.build(status: .unauthorized, type: "api_error", message: "Authentication failed: \(error)")
             }
 
-            if self.mcpBridge != nil {
+            if await self.bridgeHolder.bridge != nil {
                 return await self.handleAgentStreaming(request: completionRequest, credentials: credentials, configuration: configuration)
             } else {
                 return await self.handleDirectStreaming(request: completionRequest, credentials: credentials, configuration: configuration)
@@ -170,7 +170,7 @@ public struct ChatCompletionsHandler: Sendable {
         var mcpToolNames: Set<String> = []
         var allTools = request.tools ?? []
 
-        if let mcpBridge {
+        if let mcpBridge = await bridgeHolder.bridge {
             do {
                 let mcpTools = try await mcpBridge.listTools()
                 for tool in mcpTools {
@@ -448,7 +448,7 @@ public struct ChatCompletionsHandler: Sendable {
     }
 
     private func executeMCPTool(toolCall: ToolCall, configuration: ServerConfiguration) async throws -> String {
-        guard let mcpBridge else {
+        guard let mcpBridge = await bridgeHolder.bridge else {
             return "Error: MCP bridge not available"
         }
 

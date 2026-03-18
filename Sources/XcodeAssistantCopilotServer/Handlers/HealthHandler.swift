@@ -4,23 +4,24 @@ import HTTPTypes
 import NIOCore
 
 public struct HealthHandler: Sendable {
-    private let mcpBridge: MCPBridgeServiceProtocol?
+    private let bridgeHolder: MCPBridgeHolder
     private let logger: LoggerProtocol
     private let startTime: Date
 
     public init(
-        mcpBridge: MCPBridgeServiceProtocol?,
+        bridgeHolder: MCPBridgeHolder,
         logger: LoggerProtocol,
         startTime: Date = Date()
     ) {
-        self.mcpBridge = mcpBridge
+        self.bridgeHolder = bridgeHolder
         self.logger = logger
         self.startTime = startTime
     }
 
-    public func buildHealthResponse() -> HealthResponse {
+    public func buildHealthResponse() async -> HealthResponse {
         let uptimeSeconds = Int(Date().timeIntervalSince(startTime))
-        let mcpBridgeStatus = MCPBridgeStatus(enabled: mcpBridge != nil)
+        let isEnabled = await bridgeHolder.bridge != nil
+        let mcpBridgeStatus = MCPBridgeStatus(enabled: isEnabled)
         return HealthResponse(
             status: "ok",
             uptimeSeconds: uptimeSeconds,
@@ -29,7 +30,7 @@ public struct HealthHandler: Sendable {
     }
 
     public func handle() async throws -> Response {
-        let healthResponse = buildHealthResponse()
+        let healthResponse = await buildHealthResponse()
 
         do {
             let encoder = JSONEncoder()
