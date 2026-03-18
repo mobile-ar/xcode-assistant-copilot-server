@@ -641,14 +641,14 @@ private struct CollectedResponse: Sendable {
     let toolCalls: [ToolCall]
 }
 
-private final class ToolCallBuilder {
+private struct ToolCallBuilder {
     var id: String?
     var type: String?
     var index: Int?
     var functionName: String = ""
     var functionArguments: String = ""
 
-    func merge(_ delta: ToolCall) {
+    mutating func merge(_ delta: ToolCall) {
         if let deltaId = delta.id {
             id = deltaId
         }
