@@ -1,6 +1,8 @@
 import Foundation
 
 public struct SSEEvent: Sendable {
+    private static let jsonDecoder = JSONDecoder()
+
     public let data: String
     public let event: String?
     public let id: String?
@@ -19,7 +21,7 @@ public struct SSEEvent: Sendable {
         guard let jsonData = data.data(using: .utf8) else {
             throw SSEParserError.invalidData("Failed to convert SSE data to UTF-8")
         }
-        return try JSONDecoder().decode(type, from: jsonData)
+        return try SSEEvent.jsonDecoder.decode(type, from: jsonData)
     }
 }
 
