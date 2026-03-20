@@ -13,6 +13,7 @@ Xcode  ──►  Local Server (localhost:8080)  ──►  GitHub Copilot API
            │  • Manages Copilot tokens    │
            │  • Streams SSE responses     │
            │  • Optional MCP agent loop   │
+           │  • Context window management │
            └──────────────────────────────┘
 ```
 
@@ -181,7 +182,9 @@ This is the default config that has Xcode MCP enabled by default. To regenerate 
   },
   "allowedCliTools": [],
   "bodyLimitMiB": 4,
+  "contextRecencyWindow": 3,
   "excludedFilePatterns": [],
+  "maxAgentLoopIterations": 20,
   "reasoningEffort": "xhigh",
   "autoApprovePermissions": ["read", "mcp"],
   "timeouts": {
@@ -198,7 +201,9 @@ To use the non MCP version just remove the whole 'xcode' object from the json.
   "mcpServers": {},
   "allowedCliTools": [],
   "bodyLimitMiB": 4,
+  "contextRecencyWindow": 3,
   "excludedFilePatterns": [],
+  "maxAgentLoopIterations": 20,
   "reasoningEffort": "xhigh",
   "autoApprovePermissions": ["read", "mcp"],
   "timeouts": {
@@ -245,6 +250,14 @@ Controls the reasoning effort level for Copilot responses. Options: `low`, `medi
 
 The server automatically retries with a lower reasoning effort if the model rejects the configured level, and caches the maximum supported level per model for subsequent requests.
 
+#### `maxAgentLoopIterations`
+
+Maximum number of iterations the agent loop can run before stopping. Each iteration may involve a Copilot API call and one or more MCP tool executions. Defaults to `20`.
+
+#### `contextRecencyWindow`
+
+Controls how many recent assistant+tool interaction pairs are kept in full when the conversation context is compacted. Older tool results are truncated and older tool call arguments are stripped to reduce token usage. The context window limit is automatically resolved per model from the Copilot API (e.g. 128k tokens for GPT-4o, 400k for Codex models), falling back to 128,000 tokens if the API doesn't provide a limit. Defaults to `3`.
+
 #### `autoApprovePermissions`
 
 Controls which permission types are automatically approved without prompting. Can be:
@@ -289,7 +302,9 @@ Xcode → Server → Copilot API
 Xcode ← Server (final streamed response)
 ```
 
-The server buffers Copilot's response. If tool calls target MCP tools, it executes them internally via the MCP bridge, appends results to the conversation, and re-requests from Copilot. This continues until a final text response is produced, which is then streamed to Xcode.
+The server buffers Copilot's response. If tool calls target MCP tools, it executes them internally via the MCP bridge, appends results to the conversation, and re-requests from Copilot. This continues until a final text response is produced (or `maxAgentLoopIterations` is reached), which is then streamed to Xcode.
+
+To keep payloads within the model's context window, the server automatically compacts the conversation on each iteration: older tool results are truncated and old tool call arguments are stripped, while the most recent interactions (controlled by `contextRecencyWindow`) are preserved in full. The per-model context window limit is resolved from the Copilot models API. Token usage is logged each iteration (e.g. `Current token usage 12000/128000 (9%)`), with a warning when usage exceeds 80%.
 
 ## Security
 
