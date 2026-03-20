@@ -16,6 +16,7 @@ public actor ConfigurationWatcher: ConfigurationWatcherProtocol {
     private var source: DispatchSourceFileSystemObject?
     private var debounceTask: Task<Void, Never>?
     private var reopenTask: Task<Void, Never>?
+    private var watchTask: Task<Void, Never>?
     private var fileDescriptor: Int32 = -1
 
     private static let reopenAttempts = 5
@@ -39,13 +40,13 @@ public actor ConfigurationWatcher: ConfigurationWatcherProtocol {
     }
 
     public func start() async {
-        let fd = Darwin.open(path, O_EVTONLY)
-        guard fd != -1 else {
+        let fileDescriptor = Darwin.open(path, O_EVTONLY)
+        guard fileDescriptor != -1 else {
             logger.warn("ConfigurationWatcher: failed to open file at \(path)")
             return
         }
-        fileDescriptor = fd
-        attachSource(fd: fd)
+        self.fileDescriptor = fileDescriptor
+        beginWatching(fileDescriptor: fileDescriptor)
     }
 
     public func stop() async {
@@ -53,6 +54,8 @@ public actor ConfigurationWatcher: ConfigurationWatcherProtocol {
         debounceTask = nil
         reopenTask?.cancel()
         reopenTask = nil
+        watchTask?.cancel()
+        watchTask = nil
         source?.cancel()
         source = nil
         continuation?.finish()
@@ -63,30 +66,45 @@ public actor ConfigurationWatcher: ConfigurationWatcherProtocol {
         }
     }
 
-    private func attachSource(fd: Int32) {
-        let newSource = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
+    private func makeFileSystemEventStream(
+        fileDescriptor: Int32
+    ) -> (stream: AsyncStream<DispatchSource.FileSystemEvent>, source: DispatchSourceFileSystemObject) {
+        let (stream, continuation) = AsyncStream<DispatchSource.FileSystemEvent>.makeStream()
+
+        let dispatchSource = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fileDescriptor,
             eventMask: [.write, .delete, .rename],
             queue: .global()
         )
 
-        // data must be captured synchronously inside the event handler while
-        // still on the GCD queue — it is reset after the handler returns and
-        // is not safe to read later from an async Task.
-        newSource.setEventHandler { [weak self] in
-            guard let self else { return }
-            let capturedData = newSource.data
-            let sendableData = capturedData.rawValue
-            Task { await self.handleEvent(DispatchSource.FileSystemEvent(rawValue: sendableData)) }
+        // data must be captured synchronously inside the event handler while still on the GCD
+        // queue — it is reset after the handler returns and is not safe to read later from an
+        // async context. AsyncStream.Continuation is Sendable; yielding from a GCD queue is
+        // safe under Swift 6 strict concurrency. This is the sole GCD-to-Swift-concurrency
+        // bridge point: no Task trampoline is needed here.
+        dispatchSource.setEventHandler {
+            let rawValue = dispatchSource.data.rawValue
+            continuation.yield(DispatchSource.FileSystemEvent(rawValue: rawValue))
         }
 
-        newSource.setCancelHandler { [weak self] in
-            guard let self else { return }
-            Task { await self.closeCancelledDescriptor(fd) }
+        dispatchSource.setCancelHandler {
+            continuation.finish()
         }
 
-        source = newSource
-        newSource.resume()
+        dispatchSource.resume()
+        return (stream, dispatchSource)
+    }
+
+    private func beginWatching(fileDescriptor: Int32) {
+        let (eventStream, dispatchSource) = makeFileSystemEventStream(fileDescriptor: fileDescriptor)
+        source = dispatchSource
+        watchTask?.cancel()
+        watchTask = Task {
+            defer { closeCancelledFileDescriptor(fileDescriptor) }
+            for await event in eventStream {
+                handleEvent(event)
+            }
+        }
     }
 
     private func handleEvent(_ eventData: DispatchSource.FileSystemEvent) {
@@ -117,10 +135,10 @@ public actor ConfigurationWatcher: ConfigurationWatcherProtocol {
 
             guard !Task.isCancelled else { return }
 
-            let fd = Darwin.open(path, O_EVTONLY)
-            if fd != -1 {
-                fileDescriptor = fd
-                attachSource(fd: fd)
+            let fileDescriptor = Darwin.open(path, O_EVTONLY)
+            if fileDescriptor != -1 {
+                self.fileDescriptor = fileDescriptor
+                beginWatching(fileDescriptor: fileDescriptor)
                 scheduleDebounce()
                 return
             }
@@ -131,10 +149,10 @@ public actor ConfigurationWatcher: ConfigurationWatcherProtocol {
         logger.warn("ConfigurationWatcher: giving up watching \(path) after \(Self.reopenAttempts) attempts")
     }
 
-    private func closeCancelledDescriptor(_ fd: Int32) {
-        if fileDescriptor == fd {
-            Darwin.close(fd)
-            fileDescriptor = -1
+    private func closeCancelledFileDescriptor(_ fileDescriptor: Int32) {
+        if self.fileDescriptor == fileDescriptor {
+            Darwin.close(fileDescriptor)
+            self.fileDescriptor = -1
         }
     }
 
