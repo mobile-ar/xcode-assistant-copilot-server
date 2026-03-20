@@ -198,6 +198,18 @@ public struct ServerConfiguration: Codable, Sendable {
         mcpServers.filter { $0.value.type == .local || $0.value.type == .stdio }
     }
 
+    public var httpMCPServers: [String: MCPServerConfiguration] {
+        mcpServers.filter { $0.value.type == .http }
+    }
+
+    public var sseMCPServers: [String: MCPServerConfiguration] {
+        mcpServers.filter { $0.value.type == .sse }
+    }
+
+    public var hasMCPServers: Bool {
+        !mcpServers.isEmpty
+    }
+
     public func isCliToolAllowed(_ toolName: String) -> Bool {
         allowedCliTools.contains("*") || allowedCliTools.contains(toolName)
     }

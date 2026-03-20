@@ -5,203 +5,199 @@ import Foundation
 @Suite("MCPBridgeFactory")
 struct MCPBridgeFactoryTests {
 
-    private func makeServerConfig(type: MCPServerType) -> MCPServerConfiguration {
-        MCPServerConfiguration(
-            type: type,
-            command: "/usr/bin/echo",
-            args: []
-        )
+    private func makeLocalConfig() -> MCPServerConfiguration {
+        MCPServerConfiguration(type: .local, command: "/usr/bin/echo", args: [])
     }
 
-    private func makeConfiguration(servers: [String: MCPServerConfiguration]) -> ServerConfiguration {
+    private func makeStdioConfig() -> MCPServerConfiguration {
+        MCPServerConfiguration(type: .stdio, command: "/usr/bin/cat", args: [])
+    }
+
+    private func makeHTTPConfig() -> MCPServerConfiguration {
+        MCPServerConfiguration(type: .http, url: "https://mcp.example.com/mcp")
+    }
+
+    private func makeSSEConfig() -> MCPServerConfiguration {
+        MCPServerConfiguration(type: .sse, url: "https://mcp.example.com/sse")
+    }
+
+    private func makeConfiguration(
+        servers: [String: MCPServerConfiguration]
+    ) -> ServerConfiguration {
         ServerConfiguration(mcpServers: servers)
     }
 
+    private func makeBridge(
+        servers: [String: MCPServerConfiguration]
+    ) -> MCPBridgeServiceProtocol? {
+        MCPBridgeFactory.make(
+            from: makeConfiguration(servers: servers),
+            logger: MockLogger(),
+            httpClient: MockHTTPClient(),
+            pidFile: nil,
+            clientName: "test-client",
+            clientVersion: "1.0.0",
+            processRunner: MockProcessRunner()
+        )
+    }
+
+    // MARK: - Empty configuration
+
     @Test("make() returns nil when no servers are configured")
-    func make_returnsNilWhenNoServers() {
-        let configuration = makeConfiguration(servers: [:])
-
-        let result = MCPBridgeFactory.make(
-            from: configuration,
-            logger: MockLogger(),
-            pidFile: nil,
-            clientName: "test",
-            clientVersion: "1.0",
-            processRunner: MockProcessRunner()
-        )
-
-        #expect(result == nil)
+    func make_returnsNilForEmptyConfig() {
+        #expect(makeBridge(servers: [:]) == nil)
     }
 
-    @Test("make() returns nil when only http servers are configured")
-    func make_returnsNilForHttpOnly() {
-        let configuration = makeConfiguration(servers: [
-            "httpServer": makeServerConfig(type: .http),
-        ])
+    // MARK: - Single local / stdio server
 
-        let result = MCPBridgeFactory.make(
-            from: configuration,
-            logger: MockLogger(),
-            pidFile: nil,
-            clientName: "test",
-            clientVersion: "1.0",
-            processRunner: MockProcessRunner()
-        )
-
-        #expect(result == nil)
-    }
-
-    @Test("make() returns nil when only sse servers are configured")
-    func make_returnsNilForSseOnly() {
-        let configuration = makeConfiguration(servers: [
-            "sseServer": makeServerConfig(type: .sse),
-        ])
-
-        let result = MCPBridgeFactory.make(
-            from: configuration,
-            logger: MockLogger(),
-            pidFile: nil,
-            clientName: "test",
-            clientVersion: "1.0",
-            processRunner: MockProcessRunner()
-        )
-
-        #expect(result == nil)
-    }
-
-    @Test("make() returns nil when only http and sse servers are configured")
-    func make_returnsNilForHttpAndSseMixed() {
-        let configuration = makeConfiguration(servers: [
-            "httpServer": makeServerConfig(type: .http),
-            "sseServer": makeServerConfig(type: .sse),
-        ])
-
-        let result = MCPBridgeFactory.make(
-            from: configuration,
-            logger: MockLogger(),
-            pidFile: nil,
-            clientName: "test",
-            clientVersion: "1.0",
-            processRunner: MockProcessRunner()
-        )
-
-        #expect(result == nil)
-    }
-
-    @Test("make() returns a single MCPBridgeService for one local server")
-    func make_returnsSingleBridgeForOneLocalServer() {
-        let configuration = makeConfiguration(servers: [
-            "localServer": makeServerConfig(type: .local),
-        ])
-
-        let result = MCPBridgeFactory.make(
-            from: configuration,
-            logger: MockLogger(),
-            pidFile: nil,
-            clientName: "test",
-            clientVersion: "1.0",
-            processRunner: MockProcessRunner()
-        )
-
+    @Test("make() returns MCPBridgeService for a single local server")
+    func make_returnsMCPBridgeServiceForSingleLocalServer() {
+        let result = makeBridge(servers: ["local": makeLocalConfig()])
         #expect(result != nil)
         #expect(result is MCPBridgeService)
     }
 
-    @Test("make() returns a single MCPBridgeService for one stdio server")
-    func make_returnsSingleBridgeForOneStdioServer() {
-        let configuration = makeConfiguration(servers: [
-            "stdioServer": makeServerConfig(type: .stdio),
-        ])
-
-        let result = MCPBridgeFactory.make(
-            from: configuration,
-            logger: MockLogger(),
-            pidFile: nil,
-            clientName: "test",
-            clientVersion: "1.0",
-            processRunner: MockProcessRunner()
-        )
-
+    @Test("make() returns MCPBridgeService for a single stdio server")
+    func make_returnsMCPBridgeServiceForSingleStdioServer() {
+        let result = makeBridge(servers: ["stdio": makeStdioConfig()])
         #expect(result != nil)
         #expect(result is MCPBridgeService)
     }
 
-    @Test("make() returns CompositeMCPBridgeService for multiple local servers")
-    func make_returnsCompositeBridgeForMultipleLocalServers() {
-        let configuration = makeConfiguration(servers: [
-            "serverA": makeServerConfig(type: .local),
-            "serverB": makeServerConfig(type: .local),
+    // MARK: - Single HTTP server
+
+    @Test("make() returns MCPHTTPBridgeService for a single http server")
+    func make_returnsMCPHTTPBridgeServiceForSingleHTTPServer() {
+        let result = makeBridge(servers: ["http": makeHTTPConfig()])
+        #expect(result != nil)
+        #expect(result is MCPHTTPBridgeService)
+    }
+
+    // MARK: - Single SSE server
+
+    @Test("make() returns MCPSSEBridgeService for a single sse server")
+    func make_returnsMCPSSEBridgeServiceForSingleSSEServer() {
+        let result = makeBridge(servers: ["sse": makeSSEConfig()])
+        #expect(result != nil)
+        #expect(result is MCPSSEBridgeService)
+    }
+
+    // MARK: - Multiple servers of the same type
+
+    @Test("make() returns CompositeMCPBridgeService for two local servers")
+    func make_returnsCompositeForTwoLocalServers() {
+        let result = makeBridge(servers: [
+            "localA": makeLocalConfig(),
+            "localB": makeLocalConfig(),
         ])
-
-        let result = MCPBridgeFactory.make(
-            from: configuration,
-            logger: MockLogger(),
-            pidFile: nil,
-            clientName: "test",
-            clientVersion: "1.0",
-            processRunner: MockProcessRunner()
-        )
-
         #expect(result != nil)
         #expect(result is CompositeMCPBridgeService)
     }
 
-    @Test("make() returns CompositeMCPBridgeService for mixed local and stdio servers")
-    func make_returnsCompositeBridgeForMixedLocalAndStdio() {
-        let configuration = makeConfiguration(servers: [
-            "localServer": makeServerConfig(type: .local),
-            "stdioServer": makeServerConfig(type: .stdio),
+    @Test("make() returns CompositeMCPBridgeService for two http servers")
+    func make_returnsCompositeForTwoHTTPServers() {
+        let result = makeBridge(servers: [
+            "httpA": makeHTTPConfig(),
+            "httpB": makeHTTPConfig(),
         ])
-
-        let result = MCPBridgeFactory.make(
-            from: configuration,
-            logger: MockLogger(),
-            pidFile: nil,
-            clientName: "test",
-            clientVersion: "1.0",
-            processRunner: MockProcessRunner()
-        )
-
         #expect(result != nil)
         #expect(result is CompositeMCPBridgeService)
     }
 
-    @Test("make() ignores http and sse servers when local servers are also present")
-    func make_ignoresHttpAndSseWhenLocalAlsoPresent() {
-        let configuration = makeConfiguration(servers: [
-            "localServer": makeServerConfig(type: .local),
-            "httpServer": makeServerConfig(type: .http),
-            "sseServer": makeServerConfig(type: .sse),
+    @Test("make() returns CompositeMCPBridgeService for two sse servers")
+    func make_returnsCompositeForTwoSSEServers() {
+        let result = makeBridge(servers: [
+            "sseA": makeSSEConfig(),
+            "sseB": makeSSEConfig(),
         ])
+        #expect(result != nil)
+        #expect(result is CompositeMCPBridgeService)
+    }
 
+    // MARK: - Mixed server types
+
+    @Test("make() returns CompositeMCPBridgeService for local + http servers")
+    func make_returnsCompositeForLocalAndHTTP() {
+        let result = makeBridge(servers: [
+            "local": makeLocalConfig(),
+            "http": makeHTTPConfig(),
+        ])
+        #expect(result != nil)
+        #expect(result is CompositeMCPBridgeService)
+    }
+
+    @Test("make() returns CompositeMCPBridgeService for local + sse servers")
+    func make_returnsCompositeForLocalAndSSE() {
+        let result = makeBridge(servers: [
+            "local": makeLocalConfig(),
+            "sse": makeSSEConfig(),
+        ])
+        #expect(result != nil)
+        #expect(result is CompositeMCPBridgeService)
+    }
+
+    @Test("make() returns CompositeMCPBridgeService for http + sse servers")
+    func make_returnsCompositeForHTTPAndSSE() {
+        let result = makeBridge(servers: [
+            "http": makeHTTPConfig(),
+            "sse": makeSSEConfig(),
+        ])
+        #expect(result != nil)
+        #expect(result is CompositeMCPBridgeService)
+    }
+
+    @Test("make() returns CompositeMCPBridgeService for all four server types")
+    func make_returnsCompositeForAllFourTypes() {
+        let result = makeBridge(servers: [
+            "local": makeLocalConfig(),
+            "stdio": makeStdioConfig(),
+            "http": makeHTTPConfig(),
+            "sse": makeSSEConfig(),
+        ])
+        #expect(result != nil)
+        #expect(result is CompositeMCPBridgeService)
+    }
+
+    @Test("make() returns CompositeMCPBridgeService for local + stdio servers")
+    func make_returnsCompositeForLocalAndStdio() {
+        let result = makeBridge(servers: [
+            "local": makeLocalConfig(),
+            "stdio": makeStdioConfig(),
+        ])
+        #expect(result != nil)
+        #expect(result is CompositeMCPBridgeService)
+    }
+
+    // MARK: - httpClient is forwarded
+
+    @Test("make() passes the provided httpClient to HTTP bridge")
+    func make_passesHTTPClientToHTTPBridge() {
+        let sharedClient = MockHTTPClient()
         let result = MCPBridgeFactory.make(
-            from: configuration,
+            from: makeConfiguration(servers: ["http": makeHTTPConfig()]),
             logger: MockLogger(),
+            httpClient: sharedClient,
             pidFile: nil,
-            clientName: "test",
+            clientName: "client",
             clientVersion: "1.0",
             processRunner: MockProcessRunner()
         )
-
-        #expect(result != nil)
-        #expect(result is MCPBridgeService)
+        // The bridge is created and is the correct type; we verify no crash and correct type.
+        #expect(result is MCPHTTPBridgeService)
     }
 
-    @Test("make() passes clientName and clientVersion to the bridge")
-    func make_passesClientInfo() {
-        let configuration = makeConfiguration(servers: [
-            "localServer": makeServerConfig(type: .local),
-        ])
-
+    @Test("make() passes the provided httpClient to SSE bridge")
+    func make_passesHTTPClientToSSEBridge() {
+        let sharedClient = MockHTTPClient()
         let result = MCPBridgeFactory.make(
-            from: configuration,
+            from: makeConfiguration(servers: ["sse": makeSSEConfig()]),
             logger: MockLogger(),
+            httpClient: sharedClient,
             pidFile: nil,
-            clientName: "my-client",
-            clientVersion: "2.5.0",
+            clientName: "client",
+            clientVersion: "1.0",
             processRunner: MockProcessRunner()
         )
-
-        #expect(result != nil)
+        #expect(result is MCPSSEBridgeService)
     }
 }

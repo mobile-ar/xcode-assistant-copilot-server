@@ -39,7 +39,14 @@ public struct HTTPClient: HTTPClientProtocol {
             throw HTTPClientError.invalidResponse
         }
 
-        return DataResponse(data: data, statusCode: httpResponse.statusCode)
+        var headers: [String: String] = [:]
+        for (key, value) in httpResponse.allHeaderFields {
+            if let stringKey = key as? String, let stringValue = value as? String {
+                headers[stringKey] = stringValue
+            }
+        }
+
+        return DataResponse(data: data, statusCode: httpResponse.statusCode, headers: headers)
     }
 
     public func stream(_ endpoint: any Endpoint) async throws -> StreamResponse {

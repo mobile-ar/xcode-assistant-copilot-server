@@ -8,6 +8,7 @@ public enum MCPBridgeError: Error, CustomStringConvertible, Equatable {
     case communicationFailed(String)
     case toolExecutionFailed(String)
     case mcpBridgeNotFound
+    case invalidConfiguration(String)
 
     public var description: String {
         switch self {
@@ -25,6 +26,8 @@ public enum MCPBridgeError: Error, CustomStringConvertible, Equatable {
             "MCP bridge tool execution failed: \(message)"
         case .mcpBridgeNotFound:
             "xcrun mcpbridge not found. This requires Xcode 26.3 or later."
+        case .invalidConfiguration(let message):
+            "Invalid MCP server configuration: \(message)"
         }
     }
 }
@@ -228,7 +231,7 @@ public actor MCPBridgeService: MCPBridgeServiceProtocol {
 
     private func initialize() async throws {
         let params: [String: AnyCodable] = [
-            "protocolVersion": AnyCodable(.string("2025-11-25")),
+            "protocolVersion": AnyCodable(.string(MCPConstants.protocolVersion)),
             "capabilities": AnyCodable(.dictionary([:])),
             "clientInfo": AnyCodable(.dictionary([
                 "name": AnyCodable(.string(clientName)),
