@@ -62,6 +62,7 @@ import Foundation
 func xcrunFindFailsWithNonZeroExit() async {
     let runner = MockProcessRunner(stdout: "", stderr: "not found", exitCode: 1)
     let bridge = MCPBridgeService(
+        serverName: "xcode",
         serverConfig: MCPServerConfiguration(type: .local, command: "/usr/bin/xcrun"),
         logger: MockLogger(),
         clientName: "test",
@@ -83,6 +84,7 @@ func xcrunFindFailsWithNonZeroExit() async {
 func xcrunFindThrows() async {
     let runner = MockProcessRunner(throwing: ProcessRunnerError.executableNotFound("/usr/bin/xcrun"))
     let bridge = MCPBridgeService(
+        serverName: "xcode",
         serverConfig: MCPServerConfiguration(type: .local, command: "/usr/bin/xcrun"),
         logger: MockLogger(),
         clientName: "test",
@@ -104,6 +106,7 @@ func xcrunFindThrows() async {
 func nonXcrunCommandSkipsVerification() async {
     let runner = MockProcessRunner(stdout: "", stderr: "", exitCode: 0)
     let bridge = MCPBridgeService(
+        serverName: "custom",
         serverConfig: MCPServerConfiguration(type: .local, command: "/usr/local/bin/custom-bridge"),
         logger: MockLogger(),
         clientName: "test",

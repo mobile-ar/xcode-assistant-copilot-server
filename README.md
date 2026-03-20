@@ -177,7 +177,8 @@ This is the default config that has Xcode MCP enabled by default. To regenerate 
       "type": "local",
       "command": "xcrun",
       "args": ["mcpbridge"],
-      "allowedTools": ["*"]
+      "allowedTools": ["*"],
+      "timeoutSeconds": 300
     }
   },
   "allowedCliTools": [],
@@ -230,7 +231,7 @@ A dictionary of MCP (Model Context Protocol) server configurations. Each entry d
 | `url` | `string` | URL (for `http`/`sse` types) |
 | `headers` | `{string: string}` | HTTP headers (for `http`/`sse` types) |
 | `allowedTools` | `[string]` | List of allowed tool names, or `["*"]` for all |
-| `timeout` | `number` | Timeout in seconds |
+| `timeoutSeconds` | `number` | Maximum time in seconds to wait for a single MCP tool call to complete before cancelling it and returning a timeout error to the model. Defaults to `300` if omitted. Must be greater than `0`. |
 
 #### `allowedCliTools`
 

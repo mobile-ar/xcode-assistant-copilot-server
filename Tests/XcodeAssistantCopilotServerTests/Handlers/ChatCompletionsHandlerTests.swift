@@ -240,6 +240,67 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
     #expect(logger.errorMessages.contains { $0.contains("search") && $0.contains("failed") })
 }
 
+@Test func executeMCPToolTimesOutUsingConfiguredServerTimeout() async throws {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.callToolDelay = .milliseconds(250)
+    mcpBridge.callResults = ["search": MCPToolResult(content: [MCPToolResultContent(type: "text", text: "late result")])]
+
+    let logger = MockLogger()
+    let config = ServerConfiguration(
+        mcpServers: ["s": MCPServerConfiguration(type: .local, command: "cmd", allowedTools: ["search"], timeoutSeconds: 0.05)],
+        autoApprovePermissions: .kinds([.mcp])
+    )
+    let handler = makeHandler(
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
+        configurationStore: ConfigurationStore(initial: config),
+        logger: logger
+    )
+    let toolCall = makeToolCall(name: "search")
+
+    let result = try await handler.executeMCPTool(toolCall: toolCall, serverName: "s")
+
+    #expect(result.contains("timed out after 0.05"))
+    #expect(logger.warnMessages.contains { $0.contains("timed out after 0.05") })
+}
+
+@Test func executeMCPToolUsesDefaultTimeoutWhenServerTimeoutMissing() async throws {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.callResults = ["search": MCPToolResult(content: [MCPToolResultContent(type: "text", text: "ok")])]
+
+    let config = ServerConfiguration(
+        mcpServers: ["s": MCPServerConfiguration(type: .local, command: "cmd", allowedTools: ["search"])],
+        autoApprovePermissions: .kinds([.mcp])
+    )
+    let handler = makeHandler(
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
+        configurationStore: ConfigurationStore(initial: config)
+    )
+    let toolCall = makeToolCall(name: "search")
+
+    let result = try await handler.executeMCPTool(toolCall: toolCall)
+
+    #expect(result == "ok")
+}
+
+@Test func executeMCPToolUsesDefaultTimeoutWhenServerTimeoutIsInvalid() async throws {
+    let mcpBridge = MockMCPBridgeService()
+    mcpBridge.callResults = ["search": MCPToolResult(content: [MCPToolResultContent(type: "text", text: "ok")])]
+
+    let config = ServerConfiguration(
+        mcpServers: ["s": MCPServerConfiguration(type: .local, command: "cmd", allowedTools: ["search"], timeoutSeconds: -1)],
+        autoApprovePermissions: .kinds([.mcp])
+    )
+    let handler = makeHandler(
+        bridgeHolder: MCPBridgeHolder(mcpBridge),
+        configurationStore: ConfigurationStore(initial: config)
+    )
+    let toolCall = makeToolCall(name: "search")
+
+    let result = try await handler.executeMCPTool(toolCall: toolCall)
+
+    #expect(result == "ok")
+}
+
 @Test func executeMCPToolChecksPermissionBeforeAllowList() async throws {
     let mcpBridge = MockMCPBridgeService()
     let config = ServerConfiguration(
@@ -1476,7 +1537,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         request: makeRequest(),
         credentials: makeCredentials(),
         allTools: [],
-        mcpToolNames: [],
+        mcpToolServerMap: [:],
         writer: writer
     )
 
@@ -1499,7 +1560,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         request: makeRequest(),
         credentials: makeCredentials(),
         allTools: [],
-        mcpToolNames: [],
+        mcpToolServerMap: [:],
         writer: writer
     )
 
@@ -1522,7 +1583,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         request: makeRequest(),
         credentials: makeCredentials(),
         allTools: [],
-        mcpToolNames: [],
+        mcpToolServerMap: [:],
         writer: writer
     )
 
@@ -1553,7 +1614,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         request: makeRequest(),
         credentials: makeCredentials(),
         allTools: [],
-        mcpToolNames: ["read_file"],
+        mcpToolServerMap: ["read_file": "s"],
         writer: writer
     )
 
@@ -1584,7 +1645,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         request: makeRequest(),
         credentials: makeCredentials(),
         allTools: [],
-        mcpToolNames: ["search"],
+        mcpToolServerMap: ["search": "s"],
         writer: writer
     )
 
@@ -1612,7 +1673,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         request: makeRequest(),
         credentials: makeCredentials(),
         allTools: [],
-        mcpToolNames: [],
+        mcpToolServerMap: [:],
         writer: writer
     )
 
@@ -1642,7 +1703,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         request: makeRequest(),
         credentials: makeCredentials(),
         allTools: [],
-        mcpToolNames: [],
+        mcpToolServerMap: [:],
         writer: writer
     )
 
@@ -1673,7 +1734,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         request: makeRequest(),
         credentials: makeCredentials(),
         allTools: [],
-        mcpToolNames: ["read_file"],
+        mcpToolServerMap: ["read_file": "s"],
         writer: writer
     )
 
@@ -1705,7 +1766,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         request: makeRequest(),
         credentials: makeCredentials(),
         allTools: [],
-        mcpToolNames: ["run"],
+        mcpToolServerMap: ["run": "s"],
         writer: writer
     )
 
@@ -1734,7 +1795,7 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         request: makeRequest(),
         credentials: makeCredentials(),
         allTools: [],
-        mcpToolNames: [],
+        mcpToolServerMap: [:],
         writer: writer
     )
 
@@ -1759,11 +1820,51 @@ private func consumeAgentStreamBody(_ response: Response) async -> String {
         request: makeRequest(),
         credentials: makeCredentials(),
         allTools: [],
-        mcpToolNames: [],
+        mcpToolServerMap: [:],
         writer: writer
     )
 
     let combined = writer.allProgressText
     #expect(combined.contains("✗"))
     #expect(writer.finishCalled)
+}
+
+@Test func executeMCPToolRespectsPerServerTimeout() async throws {
+    let xcodeServer = MockMCPBridgeService()
+    xcodeServer.callToolDelay = .milliseconds(300)
+    xcodeServer.callResults = ["xcode_tool": MCPToolResult(content: [MCPToolResultContent(type: "text", text: "result")])]
+
+    let zedServer = MockMCPBridgeService()
+    zedServer.callToolDelay = .milliseconds(300)
+    zedServer.callResults = ["zed_tool": MCPToolResult(content: [MCPToolResultContent(type: "text", text: "result")])]
+
+    // xcode server has a 0.05s timeout (will expire), zed has a 60s timeout (will succeed)
+    let config = ServerConfiguration(
+        mcpServers: [
+            "xcode": MCPServerConfiguration(type: .local, command: "xcrun", allowedTools: ["xcode_tool"], timeoutSeconds: 0.05),
+            "zed": MCPServerConfiguration(type: .local, command: "zed", allowedTools: ["zed_tool"], timeoutSeconds: 60),
+        ],
+        autoApprovePermissions: .kinds([.mcp])
+    )
+
+    let xcodeHandler = makeHandler(
+        bridgeHolder: MCPBridgeHolder(xcodeServer),
+        configurationStore: ConfigurationStore(initial: config)
+    )
+    let zedHandler = makeHandler(
+        bridgeHolder: MCPBridgeHolder(zedServer),
+        configurationStore: ConfigurationStore(initial: config)
+    )
+
+    let xcodeResult = try await xcodeHandler.executeMCPTool(
+        toolCall: makeToolCall(name: "xcode_tool"),
+        serverName: "xcode"
+    )
+    let zedResult = try await zedHandler.executeMCPTool(
+        toolCall: makeToolCall(name: "zed_tool"),
+        serverName: "zed"
+    )
+
+    #expect(xcodeResult.contains("timed out after 0.05"), "xcode server should use its 0.05s timeout")
+    #expect(zedResult == "result", "zed server should use its 60s timeout and succeed")
 }

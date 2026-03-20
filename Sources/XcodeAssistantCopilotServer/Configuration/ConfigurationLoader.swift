@@ -55,6 +55,7 @@ public struct ConfigurationLoader: ConfigurationLoaderProtocol {
             "mcpbridge"
           ],
           "command" : "xcrun",
+          "timeoutSeconds" : 300,
           "type" : "local"
         }
       },
@@ -179,7 +180,7 @@ public struct ConfigurationLoader: ConfigurationLoaderProtocol {
                 url: server.url,
                 headers: server.headers,
                 allowedTools: server.allowedTools,
-                timeout: server.timeout
+                timeoutSeconds: server.timeoutSeconds
             )
         }
 
@@ -252,6 +253,11 @@ public struct ConfigurationLoader: ConfigurationLoaderProtocol {
                         "MCP server \"\(name)\" requires a non-empty url"
                     )
                 }
+            }
+            if let timeout = server.timeoutSeconds, timeout <= 0 {
+                throw ConfigurationLoaderError.validationFailed(
+                    "MCP server \"\(name)\" timeout must be greater than 0 seconds, got \(timeout)"
+                )
             }
         }
     }

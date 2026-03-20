@@ -37,6 +37,7 @@ public protocol MCPBridgeServiceProtocol: Sendable {
 }
 
 public actor MCPBridgeService: MCPBridgeServiceProtocol {
+    private let serverName: String
     private let serverConfig: MCPServerConfiguration
     private let logger: LoggerProtocol
     private let pidFile: MCPBridgePIDFileProtocol?
@@ -58,6 +59,7 @@ public actor MCPBridgeService: MCPBridgeServiceProtocol {
     }
 
     public init(
+        serverName: String,
         serverConfig: MCPServerConfiguration,
         logger: LoggerProtocol,
         pidFile: MCPBridgePIDFileProtocol? = nil,
@@ -65,6 +67,7 @@ public actor MCPBridgeService: MCPBridgeServiceProtocol {
         clientVersion: String,
         processRunner: ProcessRunnerProtocol = ProcessRunner()
     ) {
+        self.serverName = serverName
         self.serverConfig = serverConfig
         self.logger = logger
         self.pidFile = pidFile
@@ -182,7 +185,7 @@ public actor MCPBridgeService: MCPBridgeServiceProtocol {
             return []
         }
 
-        let mcpTools = tools.map { MCPTool(from: $0) }
+        let mcpTools = tools.map { MCPTool(from: $0, serverName: serverName) }
         cachedTools = mcpTools
         logger.info("Discovered \(mcpTools.count) MCP tool(s)")
         for tool in mcpTools {

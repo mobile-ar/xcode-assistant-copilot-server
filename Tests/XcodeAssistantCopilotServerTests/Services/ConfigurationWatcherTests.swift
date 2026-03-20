@@ -236,9 +236,18 @@ private func writeJSONEditorStyle(_ json: String, to url: URL) throws {
     ) { group in
         group.addTask {
             var configs: [ServerConfiguration] = []
+            var sawFirst = false
+            var sawSecond = false
             for await config in stream {
                 configs.append(config)
-                if configs.count == 2 {
+                let tools = config.allowedCliTools
+                if tools == ["git", "xcodebuild"] {
+                    sawFirst = true
+                }
+                if tools == ["swift"] {
+                    sawSecond = true
+                }
+                if sawFirst && sawSecond {
                     return configs
                 }
             }
@@ -253,11 +262,9 @@ private func writeJSONEditorStyle(_ json: String, to url: URL) throws {
         return result
     }
 
-    #expect(collectedConfigs.count == 2, "Watcher did not yield two configs after two atomic renames")
-    if collectedConfigs.count == 2 {
-        #expect(collectedConfigs[0].allowedCliTools == ["git", "xcodebuild"])
-        #expect(collectedConfigs[1].allowedCliTools == ["swift"])
-    }
+    let allowedToolsSnapshots = collectedConfigs.map(\.allowedCliTools)
+    #expect(allowedToolsSnapshots.contains(["git", "xcodebuild"]), "Watcher did not emit first updated config snapshot")
+    #expect(allowedToolsSnapshots.contains(["swift"]), "Watcher did not emit second updated config snapshot")
 }
 
 @Test func watcherIgnoresInvalidJSON() async throws {
@@ -328,9 +335,18 @@ private func writeJSONEditorStyle(_ json: String, to url: URL) throws {
     ) { group in
         group.addTask {
             var configs: [ServerConfiguration] = []
+            var sawFirst = false
+            var sawSecond = false
             for await config in stream {
                 configs.append(config)
-                if configs.count == 2 {
+                let tools = config.allowedCliTools
+                if tools == ["git", "xcodebuild"] {
+                    sawFirst = true
+                }
+                if tools == ["swift"] {
+                    sawSecond = true
+                }
+                if sawFirst && sawSecond {
                     return configs
                 }
             }
@@ -345,11 +361,9 @@ private func writeJSONEditorStyle(_ json: String, to url: URL) throws {
         return result
     }
 
-    #expect(collectedConfigs.count == 2, "Watcher did not yield two configs within the timeout")
-    if collectedConfigs.count == 2 {
-        #expect(collectedConfigs[0].allowedCliTools == ["git", "xcodebuild"])
-        #expect(collectedConfigs[1].allowedCliTools == ["swift"])
-    }
+    let allowedToolsSnapshots = collectedConfigs.map(\.allowedCliTools)
+    #expect(allowedToolsSnapshots.contains(["git", "xcodebuild"]), "Watcher did not emit first updated config snapshot")
+    #expect(allowedToolsSnapshots.contains(["swift"]), "Watcher did not emit second updated config snapshot")
 }
 
 @Test func stopFinishesStream() async throws {

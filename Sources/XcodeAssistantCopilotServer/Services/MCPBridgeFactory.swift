@@ -19,17 +19,19 @@ public struct MCPBridgeFactory: Sendable {
 
         if sortedServers.count == 1, let entry = sortedServers.first {
             return MCPBridgeService(
-                serverConfig: entry.value,
-                logger: logger,
-                pidFile: pidFile,
-                clientName: clientName,
-                clientVersion: clientVersion,
-                processRunner: processRunner
-            )
+                    serverName: entry.key,
+                    serverConfig: entry.value,
+                    logger: logger,
+                    pidFile: pidFile,
+                    clientName: clientName,
+                    clientVersion: clientVersion,
+                    processRunner: processRunner
+                )
         }
 
         let bridges: [(serverName: String, bridge: MCPBridgeServiceProtocol)] = sortedServers.map { name, serverConfig in
             let bridge = MCPBridgeService(
+                serverName: name,
                 serverConfig: serverConfig,
                 logger: logger,
                 pidFile: nil,

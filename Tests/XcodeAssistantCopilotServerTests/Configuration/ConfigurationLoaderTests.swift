@@ -27,6 +27,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     #expect(config.mcpServers["xcode"]?.args == ["mcpbridge"])
     #expect(config.allowedCliTools.isEmpty)
     #expect(config.bodyLimitMiB == 4)
+    #expect(config.mcpServers["xcode"]?.timeoutSeconds == 300)
     #expect(config.excludedFilePatterns.isEmpty)
     #expect(config.reasoningEffort == .xhigh)
     #expect(config.autoApprovePermissions.isApproved(.read) == true)
@@ -95,6 +96,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     #expect(config.mcpServers["xcode"]?.command == "xcrun")
     #expect(config.mcpServers["xcode"]?.args == ["mcpbridge"])
     #expect(config.mcpServers["xcode"]?.isToolAllowed("anything") == true)
+    #expect(config.mcpServers["xcode"]?.timeoutSeconds == 300)
     #expect(config.allowedCliTools.isEmpty)
     #expect(config.bodyLimitMiB == 4)
     #expect(config.excludedFilePatterns.isEmpty)
@@ -196,6 +198,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     #expect(config.mcpServers["xcode"]?.command == "xcrun")
     #expect(config.mcpServers["xcode"]?.args == ["mcpbridge"])
     #expect(config.mcpServers["xcode"]?.isToolAllowed("any_tool") == true)
+    #expect(config.mcpServers["xcode"]?.timeoutSeconds == nil)
 }
 
 @Test func loadParsesConfigWithPermissionKinds() throws {
@@ -304,6 +307,69 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
     let tempDir = FileManager.default.temporaryDirectory
     let configPath = tempDir.appendingPathComponent("test_high_body_\(UUID().uuidString).json")
+    try? json.write(to: configPath, atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(at: configPath) }
+
+    #expect(throws: ConfigurationLoaderError.self) {
+        try loader.load(from: configPath.path)
+    }
+}
+
+@Test func loadParsesConfigWithMCPServerTimeout() throws {
+    let logger = MockLogger()
+    let loader = ConfigurationLoader(logger: logger)
+
+    let json = """
+    {
+        "mcpServers": {
+            "xcode": {
+                "type": "local",
+                "command": "xcrun",
+                "args": ["mcpbridge"],
+                "allowedTools": ["*"],
+                "timeoutSeconds": 45
+            }
+        },
+        "allowedCliTools": [],
+        "bodyLimitMiB": 4,
+        "excludedFilePatterns": [],
+        "autoApprovePermissions": ["read", "mcp"]
+    }
+    """
+
+    let tempDir = FileManager.default.temporaryDirectory
+    let configPath = tempDir.appendingPathComponent("test_mcp_timeout_config_\(UUID().uuidString).json")
+    try json.write(to: configPath, atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(at: configPath) }
+
+    let config = try loader.load(from: configPath.path)
+    #expect(config.mcpServers["xcode"]?.timeoutSeconds == 45)
+}
+
+@Test func loadThrowsOnNonPositiveMCPServerTimeout() {
+    let logger = MockLogger()
+    let loader = ConfigurationLoader(logger: logger)
+
+    let json = """
+    {
+        "mcpServers": {
+            "xcode": {
+                "type": "local",
+                "command": "xcrun",
+                "args": ["mcpbridge"],
+                "allowedTools": ["*"],
+                "timeoutSeconds": 0
+            }
+        },
+        "allowedCliTools": [],
+        "bodyLimitMiB": 4,
+        "excludedFilePatterns": [],
+        "autoApprovePermissions": ["read", "mcp"]
+    }
+    """
+
+    let tempDir = FileManager.default.temporaryDirectory
+    let configPath = tempDir.appendingPathComponent("test_mcp_invalid_timeout_config_\(UUID().uuidString).json")
     try? json.write(to: configPath, atomically: true, encoding: .utf8)
     defer { try? FileManager.default.removeItem(at: configPath) }
 
@@ -740,7 +806,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     #expect(config.timeouts.requestTimeoutSeconds == 300)
     #expect(config.timeouts.streamingEndpointTimeoutSeconds == 300)
     #expect(config.timeouts.httpClientTimeoutSeconds == 300)
-    #expect(config.maxAgentLoopIterations == 40)
+    #expect(config.maxAgentLoopIterations == 20)
 }
 
 @Test func serverConfigurationBodyLimitBytesCalculation() {
@@ -924,7 +990,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
                     "ANOTHER_VAR": "value2"
                 },
                 "cwd": "/tmp",
-                "timeout": 30.0,
+                "timeoutSeconds": 30.0,
                 "allowedTools": ["*"]
             }
         },
@@ -945,7 +1011,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     #expect(server?.env?["MY_VAR"] == "value1")
     #expect(server?.env?["ANOTHER_VAR"] == "value2")
     #expect(server?.cwd == "/tmp")
-    #expect(server?.timeout == 30.0)
+    #expect(server?.timeoutSeconds == 30.0)
 }
 
 @Test func timeoutsConfigurationUsesDefaultValues() {
@@ -1028,9 +1094,9 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     #expect(config.timeouts.httpClientTimeoutSeconds == 300)
 }
 
-@Test func serverConfigurationDefaultMaxAgentLoopIterationsIs40() {
+@Test func serverConfigurationDefaultMaxAgentLoopIterationsIs20() {
     let config = ServerConfiguration()
-    #expect(config.maxAgentLoopIterations == 40)
+    #expect(config.maxAgentLoopIterations == 20)
 }
 
 @Test func loadParsesMaxAgentLoopIterationsFromConfig() throws {
@@ -1077,7 +1143,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     defer { try? FileManager.default.removeItem(at: tempPath) }
 
     let config = try loader.load(from: tempPath.path)
-    #expect(config.maxAgentLoopIterations == 40)
+    #expect(config.maxAgentLoopIterations == 20)
 }
 
 @Test func loadParsesBodyLimitBoundaryValues() throws {
@@ -1213,7 +1279,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
     #expect(config.allowedCliTools == ["mytool"])
     #expect(config.bodyLimitMiB == 8)
-    #expect(config.maxAgentLoopIterations == 40)
+    #expect(config.maxAgentLoopIterations == 20)
 
     let updatedData = try Data(contentsOf: URL(fileURLWithPath: configPath))
     let updatedJSON = try JSONSerialization.jsonObject(with: updatedData) as? [String: Any]

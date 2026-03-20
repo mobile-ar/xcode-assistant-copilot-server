@@ -4,11 +4,13 @@ public struct MCPTool: Sendable {
     public let name: String
     public let description: String?
     public let inputSchema: [String: AnyCodable]?
+    public let serverName: String
 
-    public init(name: String, description: String? = nil, inputSchema: [String: AnyCodable]? = nil) {
+    public init(name: String, description: String? = nil, inputSchema: [String: AnyCodable]? = nil, serverName: String = "") {
         self.name = name
         self.description = description
         self.inputSchema = inputSchema
+        self.serverName = serverName
     }
 
     public func toOpenAITool() -> Tool {
@@ -24,10 +26,11 @@ public struct MCPTool: Sendable {
 }
 
 extension MCPTool {
-    init(from definition: MCPToolDefinition) {
+    init(from definition: MCPToolDefinition, serverName: String) {
         self.name = definition.name
         self.description = definition.description
         self.inputSchema = definition.inputSchema
+        self.serverName = serverName
     }
 }
 

@@ -103,7 +103,7 @@ public struct MCPServerConfiguration: Codable, Sendable {
     public let url: String?
     public let headers: [String: String]?
     public let allowedTools: [String]?
-    public let timeout: Double?
+    public let timeoutSeconds: Double?
 
     public init(
         type: MCPServerType,
@@ -114,7 +114,7 @@ public struct MCPServerConfiguration: Codable, Sendable {
         url: String? = nil,
         headers: [String: String]? = nil,
         allowedTools: [String]? = nil,
-        timeout: Double? = nil
+        timeoutSeconds: Double? = nil
     ) {
         self.type = type
         self.command = command
@@ -124,7 +124,7 @@ public struct MCPServerConfiguration: Codable, Sendable {
         self.url = url
         self.headers = headers
         self.allowedTools = allowedTools
-        self.timeout = timeout
+        self.timeoutSeconds = timeoutSeconds
     }
 
     public func isToolAllowed(_ toolName: String) -> Bool {

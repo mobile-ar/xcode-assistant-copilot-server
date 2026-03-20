@@ -14,6 +14,7 @@ public struct ChatCompletionsHandler: Sendable {
     private let logger: LoggerProtocol
 
     private static let maxReasoningEffortRetries = 3
+    private static let defaultMCPToolTimeoutSeconds: Double = 60
 
     public init(
         authService: AuthServiceProtocol,
@@ -167,14 +168,14 @@ public struct ChatCompletionsHandler: Sendable {
         let completionId = ChatCompletionChunk.makeCompletionId()
         let model = request.model
 
-        var mcpToolNames: Set<String> = []
+        var mcpToolServerMap: [String: String] = [:]
         var allTools = request.tools ?? []
 
         if let mcpBridge = await bridgeHolder.bridge {
             do {
                 let mcpTools = try await mcpBridge.listTools()
                 for tool in mcpTools {
-                    mcpToolNames.insert(tool.name)
+                    mcpToolServerMap[tool.name] = tool.serverName
                     allTools.append(tool.toOpenAITool())
                 }
                 logger.debug("Injected \(mcpTools.count) MCP tool(s) into request")
@@ -184,7 +185,7 @@ public struct ChatCompletionsHandler: Sendable {
         }
 
         let frozenTools = allTools
-        let frozenMCPToolNames = mcpToolNames
+        let frozenMCPToolServerMap = mcpToolServerMap
 
         let responseStream = AsyncStream<ByteBuffer> { continuation in
             let writer = AgentStreamWriter(
@@ -198,7 +199,7 @@ public struct ChatCompletionsHandler: Sendable {
                     request: request,
                     credentials: credentials,
                     allTools: frozenTools,
-                    mcpToolNames: frozenMCPToolNames,
+                    mcpToolServerMap: frozenMCPToolServerMap,
                     writer: writer,
                     configuration: configuration
                 )
@@ -216,7 +217,7 @@ public struct ChatCompletionsHandler: Sendable {
         request: ChatCompletionRequest,
         credentials: CopilotCredentials,
         allTools: [Tool],
-        mcpToolNames: Set<String>,
+        mcpToolServerMap: [String: String],
         writer: some AgentStreamWriterProtocol
     ) async {
         let configuration = await configurationStore.current()
@@ -224,7 +225,7 @@ public struct ChatCompletionsHandler: Sendable {
             request: request,
             credentials: credentials,
             allTools: allTools,
-            mcpToolNames: mcpToolNames,
+            mcpToolServerMap: mcpToolServerMap,
             writer: writer,
             configuration: configuration
         )
@@ -234,7 +235,7 @@ public struct ChatCompletionsHandler: Sendable {
         request: ChatCompletionRequest,
         credentials: CopilotCredentials,
         allTools: [Tool],
-        mcpToolNames: Set<String>,
+        mcpToolServerMap: [String: String],
         writer: some AgentStreamWriterProtocol,
         configuration: ServerConfiguration
     ) async {
@@ -314,8 +315,8 @@ public struct ChatCompletionsHandler: Sendable {
             let responseContent = collectedResponse.content
 
             if !responseToolCalls.isEmpty {
-                let mcpCalls = responseToolCalls.filter { mcpToolNames.contains($0.function.name ?? "") }
-                let otherCalls = responseToolCalls.filter { !mcpToolNames.contains($0.function.name ?? "") }
+                let mcpCalls = responseToolCalls.filter { mcpToolServerMap[$0.function.name ?? ""] != nil }
+                let otherCalls = responseToolCalls.filter { mcpToolServerMap[$0.function.name ?? ""] == nil }
 
                 let shellApproved = configuration.autoApprovePermissions.isApproved(.shell)
                 let allowedCliCalls = otherCalls.filter { shellApproved && configuration.isCliToolAllowed($0.function.name ?? "") }
@@ -342,9 +343,10 @@ public struct ChatCompletionsHandler: Sendable {
                         hadToolUse = true
                         writer.writeProgressText(formatter.formattedToolCall(toolCall))
 
+                        let serverName = mcpToolServerMap[toolCall.function.name ?? ""] ?? ""
                         let toolResult: String
                         do {
-                            toolResult = try await executeMCPTool(toolCall: toolCall, configuration: configuration)
+                            toolResult = try await executeMCPTool(toolCall: toolCall, serverName: serverName, configuration: configuration)
                         } catch is CancellationError {
                             logger.debug("Agent loop cancelled during MCP tool execution")
                             writer.finish()
@@ -469,12 +471,12 @@ public struct ChatCompletionsHandler: Sendable {
         return CollectedResponse(content: content, toolCalls: toolCalls)
     }
 
-    func executeMCPTool(toolCall: ToolCall) async throws -> String {
+    func executeMCPTool(toolCall: ToolCall, serverName: String = "") async throws -> String {
         let configuration = await configurationStore.current()
-        return try await executeMCPTool(toolCall: toolCall, configuration: configuration)
+        return try await executeMCPTool(toolCall: toolCall, serverName: serverName, configuration: configuration)
     }
 
-    private func executeMCPTool(toolCall: ToolCall, configuration: ServerConfiguration) async throws -> String {
+    private func executeMCPTool(toolCall: ToolCall, serverName: String, configuration: ServerConfiguration) async throws -> String {
         guard let mcpBridge = await bridgeHolder.bridge else {
             return "Error: MCP bridge not available"
         }
@@ -507,8 +509,15 @@ public struct ChatCompletionsHandler: Sendable {
             arguments = [:]
         }
 
+        let timeoutSeconds = resolvedMCPToolTimeoutSeconds(serverName: serverName, configuration: configuration)
+
         do {
-            let result = try await mcpBridge.callTool(name: toolName, arguments: arguments)
+            let result = try await callMCPToolWithTimeout(
+                bridge: mcpBridge,
+                toolName: toolName,
+                arguments: arguments,
+                timeoutSeconds: timeoutSeconds
+            )
             let text = result.textContent
 
             if TabIdentifierResolver.isTabIdentifierError(text) {
@@ -520,7 +529,12 @@ public struct ChatCompletionsHandler: Sendable {
                     logger.debug("MCP tool '\(toolName)' got invalid tabIdentifier — retrying with resolved '\(resolvedTab)'")
                     var fixedArguments = arguments
                     fixedArguments["tabIdentifier"] = AnyCodable(.string(resolvedTab))
-                    let retryResult = try await mcpBridge.callTool(name: toolName, arguments: fixedArguments)
+                    let retryResult = try await callMCPToolWithTimeout(
+                        bridge: mcpBridge,
+                        toolName: toolName,
+                        arguments: fixedArguments,
+                        timeoutSeconds: timeoutSeconds
+                    )
                     return retryResult.textContent
                 }
             }
@@ -529,10 +543,47 @@ public struct ChatCompletionsHandler: Sendable {
         } catch is CancellationError {
             logger.debug("MCP tool '\(toolName)' cancelled")
             throw CancellationError()
+        } catch let error as MCPToolExecutionError {
+            switch error {
+            case .timedOut(let timedOutToolName, let timedOutSeconds):
+                logger.warn("MCP tool '\(timedOutToolName)' timed out after \(timedOutSeconds) seconds")
+                return "Error executing tool \(timedOutToolName): timed out after \(timedOutSeconds) seconds"
+            }
         } catch {
             logger.error("MCP tool \(toolName) failed: \(error)")
             return "Error executing tool \(toolName): \(error)"
         }
+    }
+
+    private func callMCPToolWithTimeout(
+        bridge: MCPBridgeServiceProtocol,
+        toolName: String,
+        arguments: [String: AnyCodable],
+        timeoutSeconds: Double
+    ) async throws -> MCPToolResult {
+        try await withThrowingTaskGroup(of: MCPToolResult.self) { group in
+            group.addTask {
+                try await bridge.callTool(name: toolName, arguments: arguments)
+            }
+
+            group.addTask {
+                try await Task.sleep(for: .seconds(timeoutSeconds))
+                throw MCPToolExecutionError.timedOut(toolName: toolName, timeoutSeconds: timeoutSeconds)
+            }
+
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
+    }
+
+    private func resolvedMCPToolTimeoutSeconds(serverName: String, configuration: ServerConfiguration) -> Double {
+        guard !serverName.isEmpty,
+              let configuredTimeout = configuration.mcpServers[serverName]?.timeoutSeconds,
+              configuredTimeout > 0 else {
+            return Self.defaultMCPToolTimeoutSeconds
+        }
+        return configuredTimeout
     }
 
     private func streamForModel(copilotRequest: CopilotChatRequest, credentials: CopilotCredentials) async throws -> AsyncThrowingStream<SSEEvent, Error> {
@@ -702,6 +753,10 @@ public struct ChatCompletionsHandler: Sendable {
         headers[HTTPField.Name("X-Accel-Buffering")!] = "no"
         return headers
     }
+}
+
+private enum MCPToolExecutionError: Error {
+    case timedOut(toolName: String, timeoutSeconds: Double)
 }
 
 private enum ChatCompletionsHandlerError: Error {

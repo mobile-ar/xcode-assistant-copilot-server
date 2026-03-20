@@ -48,7 +48,7 @@ import Testing
         ]
     )
 
-    let tool = MCPTool(from: definition)
+    let tool = MCPTool(from: definition, serverName: "test-server")
 
     #expect(tool.name == "read_file")
     #expect(tool.description == "Reads a file from disk")
@@ -61,7 +61,7 @@ import Testing
 @Test func initFromMCPToolDefinitionWithNilOptionals() {
     let definition = MCPToolDefinition(name: "no_extras")
 
-    let tool = MCPTool(from: definition)
+    let tool = MCPTool(from: definition, serverName: "")
 
     #expect(tool.name == "no_extras")
     #expect(tool.description == nil)
