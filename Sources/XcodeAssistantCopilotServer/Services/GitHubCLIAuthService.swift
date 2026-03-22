@@ -57,6 +57,7 @@ public actor GitHubCLIAuthService: AuthServiceProtocol {
     private let logger: LoggerProtocol
     private let httpClient: HTTPClientProtocol
     private let deviceFlowService: DeviceFlowServiceProtocol
+    private let requestHeaders: CopilotRequestHeadersProtocol
     private var cachedToken: CopilotToken?
 
     private static let ghPaths = ["/usr/local/bin/gh", "/opt/homebrew/bin/gh", "/usr/bin/gh"]
@@ -65,12 +66,14 @@ public actor GitHubCLIAuthService: AuthServiceProtocol {
         processRunner: ProcessRunnerProtocol,
         logger: LoggerProtocol,
         deviceFlowService: DeviceFlowServiceProtocol,
-        httpClient: HTTPClientProtocol
+        httpClient: HTTPClientProtocol,
+        requestHeaders: CopilotRequestHeadersProtocol
     ) {
         self.processRunner = processRunner
         self.logger = logger
         self.deviceFlowService = deviceFlowService
         self.httpClient = httpClient
+        self.requestHeaders = requestHeaders
     }
 
     public func getGitHubToken() async throws -> String {
@@ -154,7 +157,7 @@ public actor GitHubCLIAuthService: AuthServiceProtocol {
     }
 
     private func exchangeForCopilotToken(githubToken: String) async throws -> CopilotToken {
-        let endpoint = CopilotTokenEndpoint(githubToken: githubToken)
+        let endpoint = CopilotTokenEndpoint(githubToken: githubToken, requestHeaders: requestHeaders)
 
         let response: DataResponse
         do {

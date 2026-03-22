@@ -50,7 +50,7 @@ public struct ModelsHandler: Sendable {
         await modelFetchCache.recordFetch()
 
         let usableModels = models.filter { $0.isUsableForChat }
-        logger.debug("Filtered \(models.count) model(s) to \(usableModels.count) chat-usable model(s)")
+        logger.info("Filtered \(models.count) model(s) to \(usableModels.count) chat-usable model(s)")
 
         let modelObjects = usableModels.map { model in
             ModelObject(id: model.id)

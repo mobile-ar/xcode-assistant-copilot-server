@@ -6,8 +6,8 @@ public struct ListModelsEndpoint: Endpoint {
     public let path = "/models"
     public let headers: [String: String]
 
-    public init(credentials: CopilotCredentials) {
+    public init(credentials: CopilotCredentials, requestHeaders: CopilotRequestHeadersProtocol) {
         self.baseURL = credentials.apiEndpoint
-        self.headers = CopilotRequestHeaders.standard(token: credentials.token)
+        self.headers = requestHeaders.standard(token: credentials.token)
     }
 }

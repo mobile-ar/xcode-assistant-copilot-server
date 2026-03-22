@@ -54,12 +54,15 @@ struct App: AsyncParsableCommand {
 
         let processRunner = ProcessRunner()
         let httpClient = HTTPClient(timeoutIntervalForRequest: configuration.timeouts.httpClientTimeoutSeconds)
+        let editorVersion = await XcodeVersionDetector(processRunner: processRunner, logger: logger).detect()
+        let requestHeaders = CopilotRequestHeaders(editorVersion: editorVersion)
         let deviceFlowService = GitHubDeviceFlowService(logger: logger, httpClient: httpClient)
         let authService = GitHubCLIAuthService(
             processRunner: processRunner,
             logger: logger,
             deviceFlowService: deviceFlowService,
-            httpClient: httpClient
+            httpClient: httpClient,
+            requestHeaders: requestHeaders
         )
 
         logger.info("Checking authentication...")
@@ -82,7 +85,8 @@ struct App: AsyncParsableCommand {
         let copilotAPI = CopilotAPIService(
             httpClient: httpClient,
             logger: logger,
-            configurationStore: configurationStore
+            configurationStore: configurationStore,
+            requestHeaders: requestHeaders
         )
 
         let clientName = App.configuration.commandName ?? "xcode-assistant-copilot-server"

@@ -2,13 +2,16 @@ import Foundation
 import Testing
 @testable import XcodeAssistantCopilotServer
 
+private let testRequestHeaders = CopilotRequestHeaders(editorVersion: "Xcode/26.0")
+
 @Test func responsesStreamEndpointHasPostMethod() throws {
     let endpoint = try ResponsesStreamEndpoint(
         request: ResponsesAPIRequest(
             model: "gpt-4o",
             input: [.message(ResponsesMessage(role: "user", content: "Hello"))]
         ),
-        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com")
+        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com"),
+        requestHeaders: testRequestHeaders
     )
     #expect(endpoint.method == .post)
 }
@@ -19,7 +22,8 @@ import Testing
             model: "gpt-4o",
             input: [.message(ResponsesMessage(role: "user", content: "Hello"))]
         ),
-        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com")
+        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com"),
+        requestHeaders: testRequestHeaders
     )
     #expect(endpoint.path == "/responses")
 }
@@ -30,7 +34,8 @@ import Testing
             model: "gpt-4o",
             input: [.message(ResponsesMessage(role: "user", content: "Hello"))]
         ),
-        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://custom.endpoint.com")
+        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://custom.endpoint.com"),
+        requestHeaders: testRequestHeaders
     )
     #expect(endpoint.baseURL == "https://custom.endpoint.com")
 }
@@ -41,7 +46,8 @@ import Testing
             model: "gpt-4o",
             input: [.message(ResponsesMessage(role: "user", content: "Hello"))]
         ),
-        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com")
+        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com"),
+        requestHeaders: testRequestHeaders
     )
     #expect(endpoint.headers["Accept"] == "text/event-stream")
     #expect(endpoint.headers["Openai-Intent"] == "conversation-panel")
@@ -53,7 +59,8 @@ import Testing
             model: "gpt-4o",
             input: [.message(ResponsesMessage(role: "user", content: "Hello"))]
         ),
-        credentials: CopilotCredentials(token: "my-secret-token", apiEndpoint: "https://api.example.com")
+        credentials: CopilotCredentials(token: "my-secret-token", apiEndpoint: "https://api.example.com"),
+        requestHeaders: testRequestHeaders
     )
     #expect(endpoint.headers["Authorization"] == "Bearer my-secret-token")
 }
@@ -64,14 +71,28 @@ import Testing
             model: "gpt-4o",
             input: [.message(ResponsesMessage(role: "user", content: "Hello"))]
         ),
-        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com")
+        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com"),
+        requestHeaders: testRequestHeaders
     )
     #expect(endpoint.headers["Content-Type"] == "application/json")
     #expect(endpoint.headers["Openai-Organization"] == "github-copilot")
     #expect(endpoint.headers["Editor-Version"] == "Xcode/26.0")
-    #expect(endpoint.headers["Editor-Plugin-Version"] == "copilot-xcode/0.1.0")
+    #expect(endpoint.headers["Editor-Plugin-Version"] == CopilotConstants.plugginVersion)
     #expect(endpoint.headers["Copilot-Integration-Id"] == "vscode-chat")
     #expect(endpoint.headers["X-Request-Id"] != nil)
+}
+
+@Test func responsesStreamEndpointReflectsCustomEditorVersion() throws {
+    let customHeaders = CopilotRequestHeaders(editorVersion: "Xcode/16.2.1")
+    let endpoint = try ResponsesStreamEndpoint(
+        request: ResponsesAPIRequest(
+            model: "gpt-4o",
+            input: [.message(ResponsesMessage(role: "user", content: "Hello"))]
+        ),
+        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com"),
+        requestHeaders: customHeaders
+    )
+    #expect(endpoint.headers["Editor-Version"] == "Xcode/16.2.1")
 }
 
 @Test func responsesStreamEndpointUsesDefaultTimeout() throws {
@@ -80,7 +101,8 @@ import Testing
             model: "gpt-4o",
             input: [.message(ResponsesMessage(role: "user", content: "Hello"))]
         ),
-        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com")
+        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com"),
+        requestHeaders: testRequestHeaders
     )
     #expect(endpoint.timeoutInterval == 300)
 }
@@ -92,6 +114,7 @@ import Testing
             input: [.message(ResponsesMessage(role: "user", content: "Hello"))]
         ),
         credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com"),
+        requestHeaders: testRequestHeaders,
         timeoutInterval: 120
     )
     #expect(endpoint.timeoutInterval == 120)
@@ -104,7 +127,8 @@ import Testing
     )
     let endpoint = try ResponsesStreamEndpoint(
         request: request,
-        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com")
+        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com"),
+        requestHeaders: testRequestHeaders
     )
     let body = try #require(endpoint.body)
     let decoded = try JSONSerialization.jsonObject(with: body) as? [String: Any]
@@ -122,7 +146,8 @@ import Testing
     )
     let endpoint = try ResponsesStreamEndpoint(
         request: request,
-        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com")
+        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com"),
+        requestHeaders: testRequestHeaders
     )
     let body = try #require(endpoint.body)
     let decoded = try JSONSerialization.jsonObject(with: body) as? [String: Any]
@@ -136,7 +161,8 @@ import Testing
             model: "gpt-4o",
             input: [.message(ResponsesMessage(role: "user", content: "Hello"))]
         ),
-        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com")
+        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com"),
+        requestHeaders: testRequestHeaders
     )
     let request = try endpoint.buildURLRequest()
     #expect(request.url?.absoluteString == "https://api.example.com/responses")
@@ -153,7 +179,8 @@ import Testing
     )
     let endpoint = try ResponsesStreamEndpoint(
         request: request,
-        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com")
+        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com"),
+        requestHeaders: testRequestHeaders
     )
     let body = try #require(endpoint.body)
     let decoded = try JSONSerialization.jsonObject(with: body) as? [String: Any]
@@ -168,7 +195,8 @@ import Testing
     )
     let endpoint = try ResponsesStreamEndpoint(
         request: request,
-        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com")
+        credentials: CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com"),
+        requestHeaders: testRequestHeaders
     )
     let body = try #require(endpoint.body)
     let decoded = try JSONSerialization.jsonObject(with: body) as? [String: Any]

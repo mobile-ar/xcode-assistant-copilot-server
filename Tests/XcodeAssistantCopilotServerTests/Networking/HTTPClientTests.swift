@@ -2,6 +2,8 @@ import Foundation
 import Testing
 @testable import XcodeAssistantCopilotServer
 
+private let testRequestHeaders = CopilotRequestHeaders(editorVersion: "Xcode/26.0")
+
 @Test func httpClientInitWithDefaultValues() {
     let client = HTTPClient()
     _ = client
@@ -51,7 +53,8 @@ import Testing
 @Test func mockHTTPClientSendReturnsDefaultResponseWhenNoResultsConfigured() async throws {
     let mock = MockHTTPClient()
     let endpoint = ListModelsEndpoint(
-        credentials: CopilotCredentials(token: "test", apiEndpoint: "https://api.example.com")
+        credentials: CopilotCredentials(token: "test", apiEndpoint: "https://api.example.com"),
+        requestHeaders: testRequestHeaders
     )
     let response = try await mock.execute(endpoint)
     #expect(response.statusCode == 200)
@@ -65,7 +68,8 @@ import Testing
     mock.executeResults = [.success(DataResponse(data: expectedData, statusCode: 201))]
 
     let endpoint = ListModelsEndpoint(
-        credentials: CopilotCredentials(token: "test", apiEndpoint: "https://api.example.com")
+        credentials: CopilotCredentials(token: "test", apiEndpoint: "https://api.example.com"),
+        requestHeaders: testRequestHeaders
     )
     let response = try await mock.execute(endpoint)
     #expect(response.statusCode == 201)
@@ -77,7 +81,8 @@ import Testing
     mock.executeResults = [.failure(HTTPClientError.networkError("connection refused"))]
 
     let endpoint = ListModelsEndpoint(
-        credentials: CopilotCredentials(token: "test", apiEndpoint: "https://api.example.com")
+        credentials: CopilotCredentials(token: "test", apiEndpoint: "https://api.example.com"),
+        requestHeaders: testRequestHeaders
     )
 
     do {
@@ -101,7 +106,8 @@ import Testing
             model: "gpt-4o",
             messages: [ChatCompletionMessage(role: .user, content: .text("Hi"))]
         ),
-        credentials: CopilotCredentials(token: "test", apiEndpoint: "https://api.example.com")
+        credentials: CopilotCredentials(token: "test", apiEndpoint: "https://api.example.com"),
+        requestHeaders: testRequestHeaders
     )
     let response = try await mock.stream(endpoint)
     #expect(response.statusCode == 200)
@@ -117,7 +123,8 @@ import Testing
             model: "gpt-4o",
             messages: [ChatCompletionMessage(role: .user, content: .text("Hi"))]
         ),
-        credentials: CopilotCredentials(token: "test", apiEndpoint: "https://api.example.com")
+        credentials: CopilotCredentials(token: "test", apiEndpoint: "https://api.example.com"),
+        requestHeaders: testRequestHeaders
     )
     let response = try await mock.stream(endpoint)
     #expect(response.statusCode == 401)
@@ -132,8 +139,8 @@ import Testing
     let mock = MockHTTPClient()
     let credentials = CopilotCredentials(token: "test-token", apiEndpoint: "https://api.example.com")
 
-    _ = try await mock.execute(ListModelsEndpoint(credentials: credentials))
-    _ = try await mock.execute(ListModelsEndpoint(credentials: credentials))
+    _ = try await mock.execute(ListModelsEndpoint(credentials: credentials, requestHeaders: testRequestHeaders))
+    _ = try await mock.execute(ListModelsEndpoint(credentials: credentials, requestHeaders: testRequestHeaders))
 
     #expect(mock.executeCallCount == 2)
     #expect(mock.sentEndpoints.count == 2)
@@ -147,7 +154,8 @@ import Testing
     ]
 
     let endpoint = ListModelsEndpoint(
-        credentials: CopilotCredentials(token: "test", apiEndpoint: "https://api.example.com")
+        credentials: CopilotCredentials(token: "test", apiEndpoint: "https://api.example.com"),
+        requestHeaders: testRequestHeaders
     )
 
     let first = try await mock.execute(endpoint)

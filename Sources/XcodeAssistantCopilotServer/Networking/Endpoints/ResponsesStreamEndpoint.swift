@@ -8,9 +8,9 @@ public struct ResponsesStreamEndpoint: Endpoint {
     public let body: Data?
     public let timeoutInterval: TimeInterval
 
-    public init(request: ResponsesAPIRequest, credentials: CopilotCredentials, timeoutInterval: TimeInterval = 300) throws {
+    public init(request: ResponsesAPIRequest, credentials: CopilotCredentials, requestHeaders: CopilotRequestHeadersProtocol, timeoutInterval: TimeInterval = 300) throws {
         self.baseURL = credentials.apiEndpoint
-        self.headers = CopilotRequestHeaders.streaming(token: credentials.token)
+        self.headers = requestHeaders.streaming(token: credentials.token)
         self.body = try JSONEncoder().encode(request)
         self.timeoutInterval = timeoutInterval
     }

@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import XcodeAssistantCopilotServer
 
-private func makeService(httpClient: MockHTTPClient = MockHTTPClient(), logger: LoggerProtocol = MockLogger(), configurationStore: ConfigurationStore = ConfigurationStore(initial: ServerConfiguration())) -> CopilotAPIService {
-    CopilotAPIService(httpClient: httpClient, logger: logger, configurationStore: configurationStore)
+private func makeService(httpClient: MockHTTPClient = MockHTTPClient(), logger: LoggerProtocol = MockLogger(), configurationStore: ConfigurationStore = ConfigurationStore(initial: ServerConfiguration()), requestHeaders: CopilotRequestHeadersProtocol = MockCopilotRequestHeaders()) -> CopilotAPIService {
+    CopilotAPIService(httpClient: httpClient, logger: logger, configurationStore: configurationStore, requestHeaders: requestHeaders)
 }
 
 private let testCredentials = CopilotCredentials(token: "test-copilot-token", apiEndpoint: "https://api.individual.githubcopilot.com")
