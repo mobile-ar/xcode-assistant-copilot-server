@@ -97,27 +97,19 @@ public struct ResponsesAPITranslator: Sendable {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 let encoder = JSONEncoder()
-                var toolCallIndex = 0
-                var hasToolCalls = false
-                var hasEmittedContentDeltas = false
-                var emittedRole = false
-                var eventCount = 0
-                var emittedChunkCount = 0
+                var state = AdaptStreamState()
 
                 do {
                     for try await event in events {
-                        eventCount += 1
+                        state.eventCount += 1
                         if Task.isCancelled {
-                            logger.debug("adaptStream: task cancelled after \(eventCount) events")
+                            logger.debug("adaptStream: task cancelled after \(state.eventCount) events")
                             break
                         }
                         if event.isDone {
-                            logger.debug("adaptStream: received [DONE] signal after \(eventCount) events")
+                            logger.debug("adaptStream: received [DONE] signal after \(state.eventCount) events")
                             break
                         }
-
-                        let dataPreview = event.data
-                        // DEBUG: logger.debug("adaptStream: raw event #\(eventCount) — type=\(event.event ?? "nil"), data=\(dataPreview)") // DEBUG: All raw event = too much console output
 
                         let eventType: ResponsesEventType
                         if let eventTypeName = event.event,
@@ -128,7 +120,7 @@ public struct ResponsesAPITranslator: Sendable {
                             eventType = fallback
                         } else if let chunk = try? event.decodeData(ChatCompletionChunk.self) {
                             logger.debug("adaptStream: received chat-completion-style chunk from /responses endpoint, passing through (choices=\(chunk.choices.count))")
-                            emittedChunkCount += 1
+                            state.emittedChunkCount += 1
                             continuation.yield(event)
                             if chunk.choices.first?.finishReason != nil {
                                 logger.info("adaptStream: chat-completion-style finish chunk received, ending stream")
@@ -136,218 +128,32 @@ public struct ResponsesAPITranslator: Sendable {
                             }
                             continue
                         } else {
-                            logger.debug("adaptStream: skipping event with unrecognized type: \(event.event ?? "nil"), data preview: \(dataPreview)")
+                            logger.debug("adaptStream: skipping event with unrecognized type: \(event.event ?? "nil"), data preview: \(event.data)")
                             continue
                         }
 
                         switch eventType {
                         case .outputTextDelta:
-                            let delta: ResponsesTextDeltaEvent
-                            do {
-                                delta = try event.decodeData(ResponsesTextDeltaEvent.self)
-                            } catch {
-                                logger.warn("adaptStream: failed to decode outputTextDelta: \(error), data: \(dataPreview)")
-                                continue
-                            }
-                            // DEBUG: logger.debug("adaptStream: outputTextDelta — delta length=\(delta.delta.count), preview=\(delta.delta.prefix(100))") // DEBUG: All the output delta = too much console output
-                            hasEmittedContentDeltas = true
-                            if !emittedRole {
-                                emitRoleDelta(
-                                    continuation: continuation,
-                                    encoder: encoder,
-                                    completionId: completionId,
-                                    model: model,
-                                    emittedChunkCount: &emittedChunkCount
-                                )
-                                emittedRole = true
-                            }
-                            let chunk = ChatCompletionChunk.makeContentDelta(
-                                id: completionId,
-                                model: model,
-                                content: delta.delta
-                            )
-                            emitChunk(chunk, continuation: continuation, encoder: encoder, emittedChunkCount: &emittedChunkCount)
-
+                            handleOutputTextDelta(event: event, state: &state, continuation: continuation, encoder: encoder, completionId: completionId, model: model)
                         case .outputItemAdded:
-                            let added: ResponsesOutputItemAddedEvent
-                            do {
-                                added = try event.decodeData(ResponsesOutputItemAddedEvent.self)
-                            } catch {
-                                logger.warn("adaptStream: failed to decode outputItemAdded: \(error), data: \(dataPreview)")
-                                continue
-                            }
-                            logger.debug("adaptStream: outputItemAdded — item type=\(added.item.type), id=\(added.item.id ?? "nil"), name=\(added.item.name ?? "nil")")
-                            guard added.item.type == "function_call" else {
-                                logger.debug("adaptStream: skipping non-function_call output item of type: \(added.item.type)")
-                                continue
-                            }
-                            if !emittedRole {
-                                emitRoleDelta(
-                                    continuation: continuation,
-                                    encoder: encoder,
-                                    completionId: completionId,
-                                    model: model,
-                                    emittedChunkCount: &emittedChunkCount
-                                )
-                                emittedRole = true
-                            }
-                            hasToolCalls = true
-                            let tc = ToolCall(
-                                index: toolCallIndex,
-                                id: added.item.callId ?? added.item.id,
-                                type: "function",
-                                function: ToolCallFunction(
-                                    name: added.item.name ?? "",
-                                    arguments: ""
-                                )
-                            )
-                            let chunk = ChatCompletionChunk.makeToolCallDelta(
-                                id: completionId,
-                                model: model,
-                                toolCalls: [tc]
-                            )
-                            emitChunk(chunk, continuation: continuation, encoder: encoder, emittedChunkCount: &emittedChunkCount)
-                            toolCallIndex += 1
-
+                            handleOutputItemAdded(event: event, state: &state, continuation: continuation, encoder: encoder, completionId: completionId, model: model)
                         case .functionCallArgumentsDelta:
-                            let delta: ResponsesFunctionCallArgsDeltaEvent
-                            do {
-                                delta = try event.decodeData(ResponsesFunctionCallArgsDeltaEvent.self)
-                            } catch {
-                                logger.warn("adaptStream: failed to decode functionCallArgumentsDelta: \(error), data: \(dataPreview)")
-                                continue
-                            }
-                            logger.debug("adaptStream: functionCallArgumentsDelta — delta=\(delta.delta.prefix(100)), callId=\(delta.callId ?? "nil")")
-                            let currentIndex = max(toolCallIndex - 1, 0)
-                            let tc = ToolCall(
-                                index: currentIndex,
-                                function: ToolCallFunction(
-                                    name: "",
-                                    arguments: delta.delta
-                                )
-                            )
-                            let chunk = ChatCompletionChunk.makeToolCallDelta(
-                                id: completionId,
-                                model: model,
-                                toolCalls: [tc]
-                            )
-                            emitChunk(chunk, continuation: continuation, encoder: encoder, emittedChunkCount: &emittedChunkCount)
-
+                            handleFunctionCallArgumentsDelta(event: event, state: &state, continuation: continuation, encoder: encoder, completionId: completionId, model: model)
                         case .responseCompleted:
-                            logger.info("adaptStream: responseCompleted — hasToolCalls=\(hasToolCalls), emittedChunks=\(emittedChunkCount), total raw events=\(eventCount)")
-                            logger.debug("adaptStream: responseCompleted full data: \(event.data)")
-                            if !emittedRole {
-                                emitRoleDelta(
-                                    continuation: continuation,
-                                    encoder: encoder,
-                                    completionId: completionId,
-                                    model: model,
-                                    emittedChunkCount: &emittedChunkCount
-                                )
-                                emittedRole = true
-                            }
-
-                            do {
-                                let completed = try event.decodeData(ResponsesCompletedEvent.self)
-                                logger.debug("adaptStream: responseCompleted decoded — status=\(completed.response.status), output items=\(completed.response.output?.count ?? 0)")
-                                let extractedContent = extractCompletedContent(from: completed)
-
-                                if !extractedContent.text.isEmpty && !hasEmittedContentDeltas && !hasToolCalls {
-                                    logger.info("adaptStream: emitting extracted text content (length=\(extractedContent.text.count)) from completed response")
-                                    let contentChunk = ChatCompletionChunk.makeContentDelta(
-                                        id: completionId,
-                                        model: model,
-                                        content: extractedContent.text
-                                    )
-                                    emitChunk(contentChunk, continuation: continuation, encoder: encoder, emittedChunkCount: &emittedChunkCount)
-                                }
-
-                                if !hasToolCalls {
-                                    for tc in extractedContent.toolCalls {
-                                        hasToolCalls = true
-                                        logger.info("adaptStream: emitting extracted tool call '\(tc.name)' (callId=\(tc.callId)) from completed response")
-                                        let headerTC = ToolCall(
-                                            index: toolCallIndex,
-                                            id: tc.callId,
-                                            type: "function",
-                                            function: ToolCallFunction(name: tc.name, arguments: "")
-                                        )
-                                        let headerChunk = ChatCompletionChunk.makeToolCallDelta(
-                                            id: completionId,
-                                            model: model,
-                                            toolCalls: [headerTC]
-                                        )
-                                        emitChunk(headerChunk, continuation: continuation, encoder: encoder, emittedChunkCount: &emittedChunkCount)
-
-                                        let argsTC = ToolCall(
-                                            index: toolCallIndex,
-                                            function: ToolCallFunction(name: "", arguments: tc.arguments)
-                                        )
-                                        let argsChunk = ChatCompletionChunk.makeToolCallDelta(
-                                            id: completionId,
-                                            model: model,
-                                            toolCalls: [argsTC]
-                                        )
-                                        emitChunk(argsChunk, continuation: continuation, encoder: encoder, emittedChunkCount: &emittedChunkCount)
-                                        toolCallIndex += 1
-                                    }
-                                }
-                            } catch {
-                                logger.error("adaptStream: failed to decode responseCompleted event: \(error)")
-                                logger.error("adaptStream: responseCompleted raw data that failed decoding: \(event.data)")
-                            }
-
-                            let finishReason = hasToolCalls ? "tool_calls" : "stop"
-                            let chunk = ChatCompletionChunk(
-                                id: completionId,
-                                model: model,
-                                choices: [ChunkChoice(delta: ChunkDelta(), finishReason: finishReason)]
-                            )
-                            emitChunk(chunk, continuation: continuation, encoder: encoder, emittedChunkCount: &emittedChunkCount)
-
+                            handleResponseCompleted(event: event, state: &state, continuation: continuation, encoder: encoder, completionId: completionId, model: model)
                         case .responseFailed, .responseIncomplete:
-                            logger.warn("adaptStream: \(eventType.rawValue) received — data=\(dataPreview)")
-                            if !emittedRole {
-                                emitRoleDelta(
-                                    continuation: continuation,
-                                    encoder: encoder,
-                                    completionId: completionId,
-                                    model: model,
-                                    emittedChunkCount: &emittedChunkCount
-                                )
-                                emittedRole = true
-                            }
-                            let chunk = ChatCompletionChunk(
-                                id: completionId,
-                                model: model,
-                                choices: [ChunkChoice(delta: ChunkDelta(), finishReason: "stop")]
-                            )
-                            emitChunk(chunk, continuation: continuation, encoder: encoder, emittedChunkCount: &emittedChunkCount)
-
-                        case .responseCreated,
-                             .responseInProgress,
-                             .outputItemDone,
-                             .contentPartAdded,
-                             .contentPartDone,
-                             .outputTextDone,
-                             .functionCallArgumentsDone,
-                             .reasoningDelta,
-                             .reasoningDone,
-                             .reasoningSummaryDelta,
-                             .reasoningSummaryDone,
-                             .reasoningSummaryTextDelta,
-                             .reasoningSummaryTextDone:
+                            handleResponseTerminated(event: event, eventType: eventType, state: &state, continuation: continuation, encoder: encoder, completionId: completionId, model: model)
+                        default:
                             logger.debug("adaptStream: passthrough event \(eventType.rawValue) (no action)")
-                            continue
                         }
                     }
                 } catch {
-                    logger.error("adaptStream: stream error after \(eventCount) events — \(error)")
+                    logger.error("adaptStream: stream error after \(state.eventCount) events — \(error)")
                     continuation.finish(throwing: error)
                     return
                 }
 
-                logger.debug("adaptStream: stream finished — total raw events=\(eventCount), emitted chunks=\(emittedChunkCount)")
+                logger.debug("adaptStream: stream finished — total raw events=\(state.eventCount), emitted chunks=\(state.emittedChunkCount)")
                 continuation.yield(SSEEvent(data: "[DONE]"))
                 continuation.finish()
             }
@@ -356,6 +162,172 @@ public struct ResponsesAPITranslator: Sendable {
                 task.cancel()
             }
         }
+    }
+
+    private func handleOutputTextDelta(
+        event: SSEEvent,
+        state: inout AdaptStreamState,
+        continuation: AsyncThrowingStream<SSEEvent, Error>.Continuation,
+        encoder: JSONEncoder,
+        completionId: String,
+        model: String
+    ) {
+        let delta: ResponsesTextDeltaEvent
+        do {
+            delta = try event.decodeData(ResponsesTextDeltaEvent.self)
+        } catch {
+            logger.warn("adaptStream: failed to decode outputTextDelta: \(error), data: \(event.data)")
+            return
+        }
+        state.hasEmittedContentDeltas = true
+        if !state.emittedRole {
+            emitRoleDelta(continuation: continuation, encoder: encoder, completionId: completionId, model: model, emittedChunkCount: &state.emittedChunkCount)
+            state.emittedRole = true
+        }
+        let chunk = ChatCompletionChunk.makeContentDelta(id: completionId, model: model, content: delta.delta)
+        emitChunk(chunk, continuation: continuation, encoder: encoder, emittedChunkCount: &state.emittedChunkCount)
+    }
+
+    private func handleOutputItemAdded(
+        event: SSEEvent,
+        state: inout AdaptStreamState,
+        continuation: AsyncThrowingStream<SSEEvent, Error>.Continuation,
+        encoder: JSONEncoder,
+        completionId: String,
+        model: String
+    ) {
+        let added: ResponsesOutputItemAddedEvent
+        do {
+            added = try event.decodeData(ResponsesOutputItemAddedEvent.self)
+        } catch {
+            logger.warn("adaptStream: failed to decode outputItemAdded: \(error), data: \(event.data)")
+            return
+        }
+        logger.debug("adaptStream: outputItemAdded — item type=\(added.item.type), id=\(added.item.id ?? "nil"), name=\(added.item.name ?? "nil")")
+        guard added.item.type == "function_call" else {
+            logger.debug("adaptStream: skipping non-function_call output item of type: \(added.item.type)")
+            return
+        }
+        if !state.emittedRole {
+            emitRoleDelta(continuation: continuation, encoder: encoder, completionId: completionId, model: model, emittedChunkCount: &state.emittedChunkCount)
+            state.emittedRole = true
+        }
+        state.hasToolCalls = true
+        let tc = ToolCall(
+            index: state.toolCallIndex,
+            id: added.item.callId ?? added.item.id,
+            type: "function",
+            function: ToolCallFunction(name: added.item.name ?? "", arguments: "")
+        )
+        let chunk = ChatCompletionChunk.makeToolCallDelta(id: completionId, model: model, toolCalls: [tc])
+        emitChunk(chunk, continuation: continuation, encoder: encoder, emittedChunkCount: &state.emittedChunkCount)
+        state.toolCallIndex += 1
+    }
+
+    private func handleFunctionCallArgumentsDelta(
+        event: SSEEvent,
+        state: inout AdaptStreamState,
+        continuation: AsyncThrowingStream<SSEEvent, Error>.Continuation,
+        encoder: JSONEncoder,
+        completionId: String,
+        model: String
+    ) {
+        let delta: ResponsesFunctionCallArgsDeltaEvent
+        do {
+            delta = try event.decodeData(ResponsesFunctionCallArgsDeltaEvent.self)
+        } catch {
+            logger.warn("adaptStream: failed to decode functionCallArgumentsDelta: \(error), data: \(event.data)")
+            return
+        }
+        logger.debug("adaptStream: functionCallArgumentsDelta — delta=\(delta.delta.prefix(100)), callId=\(delta.callId ?? "nil")")
+        let currentIndex = max(state.toolCallIndex - 1, 0)
+        let tc = ToolCall(
+            index: currentIndex,
+            function: ToolCallFunction(name: "", arguments: delta.delta)
+        )
+        let chunk = ChatCompletionChunk.makeToolCallDelta(id: completionId, model: model, toolCalls: [tc])
+        emitChunk(chunk, continuation: continuation, encoder: encoder, emittedChunkCount: &state.emittedChunkCount)
+    }
+
+    private func handleResponseCompleted(
+        event: SSEEvent,
+        state: inout AdaptStreamState,
+        continuation: AsyncThrowingStream<SSEEvent, Error>.Continuation,
+        encoder: JSONEncoder,
+        completionId: String,
+        model: String
+    ) {
+        logger.info("adaptStream: responseCompleted — hasToolCalls=\(state.hasToolCalls), emittedChunks=\(state.emittedChunkCount), total raw events=\(state.eventCount)")
+        logger.debug("adaptStream: responseCompleted full data: \(event.data)")
+        if !state.emittedRole {
+            emitRoleDelta(continuation: continuation, encoder: encoder, completionId: completionId, model: model, emittedChunkCount: &state.emittedChunkCount)
+            state.emittedRole = true
+        }
+
+        do {
+            let completed = try event.decodeData(ResponsesCompletedEvent.self)
+            logger.debug("adaptStream: responseCompleted decoded — status=\(completed.response.status), output items=\(completed.response.output?.count ?? 0)")
+            let extractedContent = extractCompletedContent(from: completed)
+
+            if !extractedContent.text.isEmpty && !state.hasEmittedContentDeltas && !state.hasToolCalls {
+                logger.info("adaptStream: emitting extracted text content (length=\(extractedContent.text.count)) from completed response")
+                let contentChunk = ChatCompletionChunk.makeContentDelta(id: completionId, model: model, content: extractedContent.text)
+                emitChunk(contentChunk, continuation: continuation, encoder: encoder, emittedChunkCount: &state.emittedChunkCount)
+            }
+
+            if !state.hasToolCalls {
+                for tc in extractedContent.toolCalls {
+                    state.hasToolCalls = true
+                    logger.info("adaptStream: emitting extracted tool call '\(tc.name)' (callId=\(tc.callId)) from completed response")
+                    let headerTC = ToolCall(
+                        index: state.toolCallIndex,
+                        id: tc.callId,
+                        type: "function",
+                        function: ToolCallFunction(name: tc.name, arguments: "")
+                    )
+                    let headerChunk = ChatCompletionChunk.makeToolCallDelta(id: completionId, model: model, toolCalls: [headerTC])
+                    emitChunk(headerChunk, continuation: continuation, encoder: encoder, emittedChunkCount: &state.emittedChunkCount)
+
+                    let argsTC = ToolCall(
+                        index: state.toolCallIndex,
+                        function: ToolCallFunction(name: "", arguments: tc.arguments)
+                    )
+                    let argsChunk = ChatCompletionChunk.makeToolCallDelta(id: completionId, model: model, toolCalls: [argsTC])
+                    emitChunk(argsChunk, continuation: continuation, encoder: encoder, emittedChunkCount: &state.emittedChunkCount)
+                    state.toolCallIndex += 1
+                }
+            }
+        } catch {
+            logger.error("adaptStream: failed to decode responseCompleted event: \(error)")
+            logger.error("adaptStream: responseCompleted raw data that failed decoding: \(event.data)")
+        }
+
+        let finishReason = state.hasToolCalls ? "tool_calls" : "stop"
+        let chunk = ChatCompletionChunk(
+            id: completionId,
+            model: model,
+            choices: [ChunkChoice(delta: ChunkDelta(), finishReason: finishReason)]
+        )
+        emitChunk(chunk, continuation: continuation, encoder: encoder, emittedChunkCount: &state.emittedChunkCount)
+    }
+
+    private func handleResponseTerminated(
+        event: SSEEvent,
+        eventType: ResponsesEventType,
+        state: inout AdaptStreamState,
+        continuation: AsyncThrowingStream<SSEEvent, Error>.Continuation,
+        encoder: JSONEncoder,
+        completionId: String,
+        model: String
+    ) {
+        logger.warn("adaptStream: \(eventType.rawValue) received — data=\(event.data)")
+        if !state.emittedRole {
+            emitRoleDelta(continuation: continuation, encoder: encoder, completionId: completionId, model: model, emittedChunkCount: &state.emittedChunkCount)
+            state.emittedRole = true
+        }
+        let choices = [ChunkChoice(delta: ChunkDelta(), finishReason: "stop")]
+        let chunk = ChatCompletionChunk(id: completionId, model: model, choices: choices)
+        emitChunk(chunk, continuation: continuation, encoder: encoder, emittedChunkCount: &state.emittedChunkCount)
     }
 
     private func extractCompletedContent(from completed: ResponsesCompletedEvent) -> ExtractedCompletedContent {
@@ -410,8 +382,7 @@ public struct ResponsesAPITranslator: Sendable {
         encoder: JSONEncoder,
         emittedChunkCount: inout Int
     ) {
-        guard let data = try? encoder.encode(chunk),
-              let json = String(data: data, encoding: .utf8) else {
+        guard let data = try? encoder.encode(chunk), let json = String(data: data, encoding: .utf8) else {
             logger.warn("adaptStream: failed to encode ChatCompletionChunk")
             return
         }

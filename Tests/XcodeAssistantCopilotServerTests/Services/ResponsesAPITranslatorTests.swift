@@ -1587,3 +1587,104 @@ import Foundation
     #expect(chunks[1].choices.first?.delta?.content == " you.")
     #expect(chunks[2].choices.first?.finishReason == "stop")
 }
+
+@Test func adaptStreamWarnsOnOutputItemAddedDecodingFailure() async throws {
+    let logger = MockLogger()
+    let translator = ResponsesAPITranslator(logger: logger)
+
+    let events = AsyncThrowingStream<SSEEvent, Error> { continuation in
+        continuation.yield(SSEEvent(
+            data: "{\"not_an_item_field\":\"bad data\"}",
+            event: "response.output_item.added"
+        ))
+        continuation.yield(SSEEvent(
+            data: "{\"response\":{\"id\":\"resp_1\",\"status\":\"completed\"}}",
+            event: "response.completed"
+        ))
+        continuation.finish()
+    }
+
+    let adapted = translator.adaptStream(
+        events: events,
+        completionId: "chatcmpl-test",
+        model: "gpt-4.1"
+    )
+
+    var chunks: [ChatCompletionChunk] = []
+    for try await event in adapted {
+        if event.isDone { break }
+        let chunk = try event.decodeData(ChatCompletionChunk.self)
+        chunks.append(chunk)
+    }
+
+    let hasDecodingWarning = logger.warnMessages.contains { $0.contains("failed to decode outputItemAdded") }
+    #expect(hasDecodingWarning)
+    #expect(chunks.last?.choices.first?.finishReason == "stop")
+}
+
+@Test func adaptStreamWarnsOnFunctionCallArgumentsDeltaDecodingFailure() async throws {
+    let logger = MockLogger()
+    let translator = ResponsesAPITranslator(logger: logger)
+
+    let events = AsyncThrowingStream<SSEEvent, Error> { continuation in
+        continuation.yield(SSEEvent(
+            data: "{\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_1\",\"name\":\"tool\",\"status\":\"in_progress\"}}",
+            event: "response.output_item.added"
+        ))
+        continuation.yield(SSEEvent(
+            data: "{\"no_delta_field\":true}",
+            event: "response.function_call_arguments.delta"
+        ))
+        continuation.yield(SSEEvent(
+            data: "{\"response\":{\"id\":\"resp_1\",\"status\":\"completed\"}}",
+            event: "response.completed"
+        ))
+        continuation.finish()
+    }
+
+    let adapted = translator.adaptStream(
+        events: events,
+        completionId: "chatcmpl-test",
+        model: "gpt-4.1"
+    )
+
+    var chunks: [ChatCompletionChunk] = []
+    for try await event in adapted {
+        if event.isDone { break }
+        let chunk = try event.decodeData(ChatCompletionChunk.self)
+        chunks.append(chunk)
+    }
+
+    let hasDecodingWarning = logger.warnMessages.contains { $0.contains("failed to decode functionCallArgumentsDelta") }
+    #expect(hasDecodingWarning)
+    #expect(chunks.last?.choices.first?.finishReason == "tool_calls")
+}
+
+@Test func adaptStreamResponseTerminatedLogsEventTypeAndData() async throws {
+    let logger = MockLogger()
+    let translator = ResponsesAPITranslator(logger: logger)
+
+    let events = AsyncThrowingStream<SSEEvent, Error> { continuation in
+        continuation.yield(SSEEvent(
+            data: "{\"error\":\"rate_limit\"}",
+            event: "response.failed"
+        ))
+        continuation.finish()
+    }
+
+    let adapted = translator.adaptStream(
+        events: events,
+        completionId: "chatcmpl-test",
+        model: "gpt-4.1"
+    )
+
+    for try await event in adapted {
+        if event.isDone { break }
+        _ = try? event.decodeData(ChatCompletionChunk.self)
+    }
+
+    let hasWarnWithEventType = logger.warnMessages.contains { $0.contains("response.failed") }
+    let hasWarnWithData = logger.warnMessages.contains { $0.contains("rate_limit") }
+    #expect(hasWarnWithEventType)
+    #expect(hasWarnWithData)
+}
