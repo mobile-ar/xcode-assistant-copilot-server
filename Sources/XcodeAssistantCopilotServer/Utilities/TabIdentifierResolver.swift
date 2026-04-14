@@ -1,4 +1,5 @@
 import Foundation
+import System
 
 struct WindowTabEntry {
     let tabIdentifier: String
@@ -57,7 +58,7 @@ struct TabIdentifierResolver {
         var bestMatchLength = 0
 
         for entry in entries {
-            let workspaceDir = (entry.workspacePath as NSString).deletingLastPathComponent
+            let workspaceDir = FilePath(entry.workspacePath).removingLastComponent().string
 
             if filePath.hasPrefix(workspaceDir), workspaceDir.count > bestMatchLength {
                 bestEntry = entry
@@ -65,7 +66,7 @@ struct TabIdentifierResolver {
                 continue
             }
 
-            let dirName = (workspaceDir as NSString).lastPathComponent
+            let dirName = FilePath(workspaceDir).lastComponent?.string ?? ""
             if !dirName.isEmpty, filePath.hasPrefix(dirName + "/") || filePath == dirName,
                dirName.count > bestMatchLength {
                 bestEntry = entry
