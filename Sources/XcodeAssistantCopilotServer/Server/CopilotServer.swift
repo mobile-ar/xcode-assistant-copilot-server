@@ -27,7 +27,7 @@ public struct CopilotServer: Sendable {
         self.bridgeHolder = bridgeHolder
     }
 
-    public func run() async throws {
+    func makeApplication() -> some ApplicationProtocol {
         let modelFetchCache = ModelFetchCache()
 
         let healthHandler = HealthHandler(
@@ -79,16 +79,20 @@ public struct CopilotServer: Sendable {
             try await completionsHandler.handle(request: request)
         }
 
-        let app = Application(
+        logger.info("Routes: \(registry.summary())")
+
+        return Application(
             router: router,
             configuration: .init(
                 address: .hostname("127.0.0.1", port: port),
                 serverName: "xcode-assistant-copilot-server"
             )
         )
+    }
 
+    public func run() async throws {
         logger.info("Starting server on http://127.0.0.1:\(port)")
-        logger.info("Routes: \(registry.summary())")
+        let app = makeApplication()
 
         let isBridgeEnabled = await bridgeHolder.bridge != nil
         if isBridgeEnabled {
