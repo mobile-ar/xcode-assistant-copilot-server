@@ -1,15 +1,5 @@
 import Foundation
 
-public struct CopilotCredentials: Sendable {
-    public let token: String
-    public let apiEndpoint: String
-
-    public init(token: String, apiEndpoint: String) {
-        self.token = token
-        self.apiEndpoint = apiEndpoint
-    }
-}
-
 public enum AuthServiceError: Error, CustomStringConvertible {
     case gitHubCLINotFound
     case gitHubCLIFailed(String)
