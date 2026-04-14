@@ -23,10 +23,10 @@ public enum LogLevel: String, Sendable, CaseIterable {
 
 public protocol LoggerProtocol: Sendable {
     var level: LogLevel { get }
-    func error(_ message: String)
-    func warn(_ message: String)
-    func info(_ message: String)
-    func debug(_ message: String)
+    func error(_ message: @autoclosure () -> String)
+    func warn(_ message: @autoclosure () -> String)
+    func info(_ message: @autoclosure () -> String)
+    func debug(_ message: @autoclosure () -> String)
 }
 
 public final class Logger: LoggerProtocol, Sendable {
@@ -39,26 +39,27 @@ public final class Logger: LoggerProtocol, Sendable {
         self.threshold = level.priority
     }
 
-    public func error(_ message: String) {
+    public func error(_ message: @autoclosure () -> String) {
         log(message, at: .error, prefix: "ERROR")
     }
 
-    public func warn(_ message: String) {
+    public func warn(_ message: @autoclosure () -> String) {
         log(message, at: .warning, prefix: "WARN")
     }
 
-    public func info(_ message: String) {
+    public func info(_ message: @autoclosure () -> String) {
         log(message, at: .info, prefix: "INFO")
     }
 
-    public func debug(_ message: String) {
+    public func debug(_ message: @autoclosure () -> String) {
         log(message, at: .debug, prefix: "DEBUG")
     }
 
-    private func log(_ message: String, at level: LogLevel, prefix: String) {
+    private func log(_ message: () -> String, at level: LogLevel, prefix: String) {
         guard threshold >= level.priority else { return }
+        let messageValue = message()
         lock.withLock { _ in
-            print("[\(prefix)] \(message)")
+            print("[\(prefix)] \(messageValue)")
         }
     }
 }

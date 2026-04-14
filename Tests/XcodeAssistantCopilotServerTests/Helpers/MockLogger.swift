@@ -21,19 +21,19 @@ final class MockLogger: LoggerProtocol, Sendable {
     var infoMessages: [String] { state.withLock { $0.infoMessages } }
     var debugMessages: [String] { state.withLock { $0.debugMessages } }
 
-    func error(_ message: String) {
-        state.withLock { $0.errorMessages.append(message) }
+    func error(_ message: @autoclosure () -> String) {
+        state.withLock { $0.errorMessages.append(message()) }
     }
 
-    func warn(_ message: String) {
-        state.withLock { $0.warnMessages.append(message) }
+    func warn(_ message: @autoclosure () -> String) {
+        state.withLock { $0.warnMessages.append(message()) }
     }
 
-    func info(_ message: String) {
-        state.withLock { $0.infoMessages.append(message) }
+    func info(_ message: @autoclosure () -> String) {
+        state.withLock { $0.infoMessages.append(message()) }
     }
 
-    func debug(_ message: String) {
-        state.withLock { $0.debugMessages.append(message) }
+    func debug(_ message: @autoclosure () -> String) {
+        state.withLock { $0.debugMessages.append(message()) }
     }
 }

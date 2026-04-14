@@ -81,3 +81,42 @@ import Testing
         #expect(levels[i].priority < levels[i + 1].priority)
     }
 }
+
+@Test func debugMessageIsNotEvaluatedWhenLevelIsBelowDebug() {
+    let logger = Logger(level: .info)
+    var evaluated = false
+    logger.debug("side effect: \(sideEffect(&evaluated))")
+    #expect(!evaluated, "Debug message should not be evaluated when log level is info")
+}
+
+@Test func debugMessageIsEvaluatedWhenLevelIsDebug() {
+    let logger = Logger(level: .debug)
+    var evaluated = false
+    logger.debug("side effect: \(sideEffect(&evaluated))")
+    #expect(evaluated, "Debug message should be evaluated when log level is debug")
+}
+
+@Test func errorMessageIsNotEvaluatedWhenLevelIsNone() {
+    let logger = Logger(level: .none)
+    var evaluated = false
+    logger.error("side effect: \(sideEffect(&evaluated))")
+    #expect(!evaluated, "Error message should not be evaluated when log level is none")
+}
+
+@Test func infoMessageIsNotEvaluatedWhenLevelIsBelowInfo() {
+    let logger = Logger(level: .warning)
+    var evaluated = false
+    logger.info("side effect: \(sideEffect(&evaluated))")
+    #expect(!evaluated, "Info message should not be evaluated when log level is warning")
+}
+
+@Test func mockLoggerEvaluatesAutoclosureMessages() {
+    let logger = MockLogger()
+    logger.debug("lazy value: \(42)")
+    #expect(logger.debugMessages == ["lazy value: 42"])
+}
+
+private func sideEffect(_ flag: inout Bool) -> String {
+    flag = true
+    return "evaluated"
+}
