@@ -6,17 +6,20 @@ public struct ModelsHandler: Sendable {
     private let authService: AuthServiceProtocol
     private let copilotAPI: CopilotAPIServiceProtocol
     private let modelFetchCache: ModelFetchCache
+    private let configurationStore: ConfigurationStore
     private let logger: LoggerProtocol
 
     public init(
         authService: AuthServiceProtocol,
         copilotAPI: CopilotAPIServiceProtocol,
         modelFetchCache: ModelFetchCache,
+        configurationStore: ConfigurationStore,
         logger: LoggerProtocol
     ) {
         self.authService = authService
         self.copilotAPI = copilotAPI
         self.modelFetchCache = modelFetchCache
+        self.configurationStore = configurationStore
         self.logger = logger
     }
 
@@ -36,18 +39,24 @@ public struct ModelsHandler: Sendable {
     }
 
     func buildModelsResponse(credentials: CopilotCredentials) async -> Response {
-        let models: [CopilotModel]
-        do {
-            models = try await fetchModelsWithRetry(credentials: credentials)
-        } catch {
-            logger.error("Failed to fetch models: \(error)")
-            return ErrorResponseBuilder.build(
-                status: .internalServerError,
-                message: "Failed to list models"
-            )
-        }
+        let ttl = await configurationStore.current().modelsCacheTTLSeconds
 
-        await modelFetchCache.recordFetch()
+        let models: [CopilotModel]
+        if let cached = await modelFetchCache.cachedModelsIfValid(ttl: ttl) {
+            logger.info("Serving \(cached.count) model(s) from cache")
+            models = cached
+        } else {
+            do {
+                models = try await fetchModelsWithRetry(credentials: credentials)
+            } catch {
+                logger.error("Failed to fetch models: \(error)")
+                return ErrorResponseBuilder.build(
+                    status: .internalServerError,
+                    message: "Failed to list models"
+                )
+            }
+            await modelFetchCache.recordFetch(models: models)
+        }
 
         let usableModels = models.filter { $0.isUsableForChat }
         logger.info("Filtered \(models.count) model(s) to \(usableModels.count) chat-usable model(s)")

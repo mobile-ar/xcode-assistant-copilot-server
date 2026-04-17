@@ -150,6 +150,7 @@ public struct ServerConfiguration: Codable, Sendable {
     public let timeouts: TimeoutsConfiguration
     public let maxAgentLoopIterations: Int
     public let contextRecencyWindow: Int
+    public let modelsCacheTTLSeconds: TimeInterval
 
     public init(
         mcpServers: [String: MCPServerConfiguration] = [:],
@@ -160,7 +161,8 @@ public struct ServerConfiguration: Codable, Sendable {
         autoApprovePermissions: AutoApprovePermissions = .kinds([.read, .mcp]),
         timeouts: TimeoutsConfiguration = TimeoutsConfiguration(),
         maxAgentLoopIterations: Int = 20,
-        contextRecencyWindow: Int = 3
+        contextRecencyWindow: Int = 3,
+        modelsCacheTTLSeconds: TimeInterval = 600
     ) {
         self.mcpServers = mcpServers
         self.allowedCliTools = allowedCliTools
@@ -171,6 +173,7 @@ public struct ServerConfiguration: Codable, Sendable {
         self.timeouts = timeouts
         self.maxAgentLoopIterations = maxAgentLoopIterations
         self.contextRecencyWindow = contextRecencyWindow
+        self.modelsCacheTTLSeconds = modelsCacheTTLSeconds
     }
 
     public init(from decoder: Decoder) throws {
@@ -184,6 +187,7 @@ public struct ServerConfiguration: Codable, Sendable {
         timeouts = try container.decodeIfPresent(TimeoutsConfiguration.self, forKey: .timeouts) ?? TimeoutsConfiguration()
         maxAgentLoopIterations = try container.decodeIfPresent(Int.self, forKey: .maxAgentLoopIterations) ?? 20
         contextRecencyWindow = try container.decodeIfPresent(Int.self, forKey: .contextRecencyWindow) ?? 3
+        modelsCacheTTLSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .modelsCacheTTLSeconds) ?? 600
     }
 
     public var bodyLimitBytes: Int {

@@ -177,7 +177,7 @@ private func makeHandler(
 
 @Test func healthReportsLastModelFetchTimeAfterRecordFetch() async throws {
     let cache = ModelFetchCache()
-    await cache.recordFetch()
+    await cache.recordFetch(models: [])
     let handler = makeHandler(modelFetchCache: cache)
 
     let response = await handler.buildHealthResponse()
@@ -191,13 +191,13 @@ private func makeHandler(
 
 @Test func healthLastModelFetchTimeUpdatesOnSubsequentFetches() async throws {
     let cache = ModelFetchCache()
-    await cache.recordFetch()
+    await cache.recordFetch(models: [])
     let handler = makeHandler(modelFetchCache: cache)
 
     let first = await handler.buildHealthResponse()
 
     try await Task.sleep(for: .milliseconds(10))
-    await cache.recordFetch()
+    await cache.recordFetch(models: [])
 
     let second = await handler.buildHealthResponse()
 
@@ -235,7 +235,7 @@ private func makeHandler(
 
 @Test func healthResponseJSONIncludesLastModelFetchTimeAfterFetch() async throws {
     let cache = ModelFetchCache()
-    await cache.recordFetch()
+    await cache.recordFetch(models: [])
     let handler = makeHandler(modelFetchCache: cache)
 
     let response = await handler.buildHealthResponse()

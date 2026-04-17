@@ -59,6 +59,7 @@ public struct ConfigurationLoader: ConfigurationLoaderProtocol {
           "type" : "local"
         }
       },
+      "modelsCacheTTLSeconds" : 600,
       "reasoningEffort" : "xhigh",
       "timeouts" : {
         "httpClientTimeoutSeconds" : 300,

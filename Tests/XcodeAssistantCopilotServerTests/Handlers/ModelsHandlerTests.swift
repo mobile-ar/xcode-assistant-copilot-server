@@ -10,12 +10,14 @@ private func makeModelsHandler(
     authService: AuthServiceProtocol = MockAuthService(),
     copilotAPI: CopilotAPIServiceProtocol = MockCopilotAPIService(),
     modelFetchCache: ModelFetchCache = ModelFetchCache(),
+    configurationStore: ConfigurationStore = ConfigurationStore(initial: ServerConfiguration()),
     logger: LoggerProtocol = MockLogger()
 ) -> ModelsHandler {
     ModelsHandler(
         authService: authService,
         copilotAPI: copilotAPI,
         modelFetchCache: modelFetchCache,
+        configurationStore: configurationStore,
         logger: logger
     )
 }
@@ -263,7 +265,8 @@ private func drainResponseBody(_ response: Response) async throws -> Data {
     let copilotAPI = MockCopilotAPIService()
     copilotAPI.models = [CopilotModel(id: "gpt-4", capabilities: CopilotModelCapabilities(type: "chat"))]
     let cache = ModelFetchCache()
-    let handler = makeModelsHandler(copilotAPI: copilotAPI, modelFetchCache: cache)
+    let configStore = ConfigurationStore(initial: ServerConfiguration(modelsCacheTTLSeconds: 0))
+    let handler = makeModelsHandler(copilotAPI: copilotAPI, modelFetchCache: cache, configurationStore: configStore)
 
     _ = await handler.buildModelsResponse(credentials: makeCredentials())
     let firstTime = await cache.lastFetchTime
@@ -296,4 +299,61 @@ private func drainResponseBody(_ response: Response) async throws -> Data {
     #expect(modelsResponse.data.count == 2)
     #expect(modelsResponse.data[0].id == "enabled-model")
     #expect(modelsResponse.data[1].id == "no-policy-model")
+}
+
+@Test func modelsServedFromCacheWhenFresh() async throws {
+    let copilotAPI = MockCopilotAPIService()
+    copilotAPI.models = [CopilotModel(id: "gpt-4", capabilities: CopilotModelCapabilities(type: "chat"))]
+    let cache = ModelFetchCache()
+    let configStore = ConfigurationStore(initial: ServerConfiguration(modelsCacheTTLSeconds: 600))
+    let handler = makeModelsHandler(copilotAPI: copilotAPI, modelFetchCache: cache, configurationStore: configStore)
+
+    let firstResponse = await handler.buildModelsResponse(credentials: makeCredentials())
+    #expect(firstResponse.status == HTTPResponse.Status.ok)
+    #expect(copilotAPI.listModelsCallCount == 1)
+
+    let secondResponse = await handler.buildModelsResponse(credentials: makeCredentials())
+    #expect(secondResponse.status == HTTPResponse.Status.ok)
+    #expect(copilotAPI.listModelsCallCount == 1)
+}
+
+@Test func modelsFetchedAgainAfterCacheExpires() async throws {
+    let copilotAPI = MockCopilotAPIService()
+    copilotAPI.models = [CopilotModel(id: "gpt-4", capabilities: CopilotModelCapabilities(type: "chat"))]
+    let cache = ModelFetchCache()
+    let configStore = ConfigurationStore(initial: ServerConfiguration(modelsCacheTTLSeconds: 0))
+    let handler = makeModelsHandler(copilotAPI: copilotAPI, modelFetchCache: cache, configurationStore: configStore)
+
+    _ = await handler.buildModelsResponse(credentials: makeCredentials())
+    #expect(copilotAPI.listModelsCallCount == 1)
+
+    try await Task.sleep(for: .milliseconds(10))
+
+    _ = await handler.buildModelsResponse(credentials: makeCredentials())
+    #expect(copilotAPI.listModelsCallCount == 2)
+}
+
+@Test func cachedModelsReflectLatestFetch() async throws {
+    let copilotAPI = MockCopilotAPIService()
+    copilotAPI.listModelsResults = [
+        .success([CopilotModel(id: "model-a", capabilities: CopilotModelCapabilities(type: "chat"))]),
+        .success([CopilotModel(id: "model-b", capabilities: CopilotModelCapabilities(type: "chat"))])
+    ]
+    let cache = ModelFetchCache()
+    let configStore = ConfigurationStore(initial: ServerConfiguration(modelsCacheTTLSeconds: 0))
+    let handler = makeModelsHandler(copilotAPI: copilotAPI, modelFetchCache: cache, configurationStore: configStore)
+
+    let firstResponse = await handler.buildModelsResponse(credentials: makeCredentials())
+    let firstData = try await drainResponseBody(firstResponse)
+    let firstModels = try JSONDecoder().decode(ModelsResponse.self, from: firstData)
+    #expect(firstModels.data.count == 1)
+    #expect(firstModels.data[0].id == "model-a")
+
+    try await Task.sleep(for: .milliseconds(10))
+
+    let secondResponse = await handler.buildModelsResponse(credentials: makeCredentials())
+    let secondData = try await drainResponseBody(secondResponse)
+    let secondModels = try JSONDecoder().decode(ModelsResponse.self, from: secondData)
+    #expect(secondModels.data.count == 1)
+    #expect(secondModels.data[0].id == "model-b")
 }

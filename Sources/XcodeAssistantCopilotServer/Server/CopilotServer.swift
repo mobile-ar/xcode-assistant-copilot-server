@@ -41,6 +41,7 @@ public struct CopilotServer: Sendable {
             authService: authService,
             copilotAPI: copilotAPI,
             modelFetchCache: modelFetchCache,
+            configurationStore: configurationStore,
             logger: logger
         )
 
