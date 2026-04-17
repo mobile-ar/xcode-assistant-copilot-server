@@ -118,7 +118,7 @@ struct HealthIntegrationTests {
             let response = try await client.execute(uri: "/health", method: .get)
             let json = try JSONSerialization.jsonObject(with: Data(response.body.readableBytesView)) as! [String: Any]
             let auth = try #require(json["authentication"] as? [String: Any])
-            #expect(auth["authenticated"] as? Bool == false)
+            #expect(auth["state"] as? String == "not_connected")
         }
     }
 
@@ -136,7 +136,7 @@ struct HealthIntegrationTests {
             let response = try await client.execute(uri: "/health", method: .get)
             let json = try JSONSerialization.jsonObject(with: Data(response.body.readableBytesView)) as! [String: Any]
             let auth = try #require(json["authentication"] as? [String: Any])
-            #expect(auth["authenticated"] as? Bool == true)
+            #expect(auth["state"] as? String == "authenticated")
         }
     }
 
@@ -167,6 +167,145 @@ struct HealthIntegrationTests {
             let response = try await client.execute(uri: "/health", method: .get)
             let json = try JSONSerialization.jsonObject(with: Data(response.body.readableBytesView)) as! [String: Any]
             #expect(!json.keys.contains("last_model_fetch_time"))
+        }
+    }
+
+    @Test("GET /health returns HTML when Accept header contains text/html")
+    func healthReturnsHTMLWhenAcceptIsTextHTML() async throws {
+        let harness = ServerTestHarness()
+        let app = harness.makeApplication()
+
+        try await app.test(.router) { client in
+            let response = try await client.execute(
+                uri: "/health",
+                method: .get,
+                headers: [.accept: "text/html"]
+            )
+            #expect(response.status == .ok)
+            #expect(response.headers[.contentType] == "text/html; charset=utf-8")
+        }
+    }
+
+    @Test("GET /health returns HTML body with DOCTYPE when browser Accept header is sent")
+    func healthReturnsHTMLBodyForBrowserAccept() async throws {
+        let harness = ServerTestHarness()
+        let app = harness.makeApplication()
+
+        try await app.test(.router) { client in
+            let response = try await client.execute(
+                uri: "/health",
+                method: .get,
+                headers: [.accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"]
+            )
+            let body = String(buffer: response.body)
+            #expect(body.contains("<!DOCTYPE html>"))
+            #expect(body.contains("Xcode Assistant Copilot"))
+        }
+    }
+
+    @Test("GET /health returns JSON when Accept header is application/json")
+    func healthReturnsJSONWhenAcceptIsJSON() async throws {
+        let harness = ServerTestHarness()
+        let app = harness.makeApplication()
+
+        try await app.test(.router) { client in
+            let response = try await client.execute(
+                uri: "/health",
+                method: .get,
+                headers: [.accept: "application/json"]
+            )
+            #expect(response.headers[.contentType] == "application/json")
+            let json = try JSONSerialization.jsonObject(with: Data(response.body.readableBytesView)) as! [String: Any]
+            #expect(json["status"] as? String == "ok")
+        }
+    }
+
+    @Test("GET /health returns JSON when Accept header is wildcard")
+    func healthReturnsJSONWhenAcceptIsWildcard() async throws {
+        let harness = ServerTestHarness()
+        let app = harness.makeApplication()
+
+        try await app.test(.router) { client in
+            let response = try await client.execute(
+                uri: "/health",
+                method: .get,
+                headers: [.accept: "*/*"]
+            )
+            #expect(response.headers[.contentType] == "application/json")
+        }
+    }
+
+    @Test("GET /health returns JSON when no Accept header is present")
+    func healthReturnsJSONWhenNoAcceptHeader() async throws {
+        let harness = ServerTestHarness()
+        let app = harness.makeApplication()
+
+        try await app.test(.router) { client in
+            let response = try await client.execute(uri: "/health", method: .get)
+            #expect(response.headers[.contentType] == "application/json")
+        }
+    }
+
+    @Test("GET /health HTML response contains status ok")
+    func healthHTMLResponseContainsStatusOk() async throws {
+        let harness = ServerTestHarness()
+        let app = harness.makeApplication()
+
+        try await app.test(.router) { client in
+            let response = try await client.execute(
+                uri: "/health",
+                method: .get,
+                headers: [.accept: "text/html"]
+            )
+            let body = String(buffer: response.body)
+            #expect(body.contains("OK"))
+        }
+    }
+
+    @Test("GET /health HTML response shows MCP bridge disabled")
+    func healthHTMLResponseShowsBridgeDisabled() async throws {
+        let harness = ServerTestHarness(bridgeHolder: MCPBridgeHolder())
+        let app = harness.makeApplication()
+
+        try await app.test(.router) { client in
+            let response = try await client.execute(
+                uri: "/health",
+                method: .get,
+                headers: [.accept: "text/html"]
+            )
+            let body = String(buffer: response.body)
+            #expect(body.contains("Disabled"))
+        }
+    }
+
+    @Test("GET /health HTML response shows MCP bridge enabled")
+    func healthHTMLResponseShowsBridgeEnabled() async throws {
+        let harness = ServerTestHarness(bridgeHolder: MCPBridgeHolder(MockMCPBridgeService()))
+        let app = harness.makeApplication()
+
+        try await app.test(.router) { client in
+            let response = try await client.execute(
+                uri: "/health",
+                method: .get,
+                headers: [.accept: "text/html"]
+            )
+            let body = String(buffer: response.body)
+            #expect(body.contains("Enabled"))
+        }
+    }
+
+    @Test("GET /health HTML response includes CORS header")
+    func healthHTMLResponseIncludesCORSHeader() async throws {
+        let harness = ServerTestHarness()
+        let app = harness.makeApplication()
+
+        try await app.test(.router) { client in
+            let response = try await client.execute(
+                uri: "/health",
+                method: .get,
+                headers: [.accept: "text/html"]
+            )
+            #expect(response.headers[HTTPField.Name("Access-Control-Allow-Origin")!] == "*")
         }
     }
 }

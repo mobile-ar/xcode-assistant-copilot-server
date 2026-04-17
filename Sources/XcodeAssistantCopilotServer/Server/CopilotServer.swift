@@ -67,8 +67,8 @@ public struct CopilotServer: Sendable {
 
         var registry = RouteRegistry(router: router)
 
-        registry.get("health") { _, _ in
-            try await healthHandler.handle()
+        registry.get("health") { request, _ in
+            try await healthHandler.handle(request: request)
         }
 
         registry.get("v1/models") { _, _ in

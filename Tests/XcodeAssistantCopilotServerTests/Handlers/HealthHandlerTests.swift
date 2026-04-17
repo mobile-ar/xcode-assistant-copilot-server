@@ -124,7 +124,7 @@ private func makeHandler(
 
     let response = await handler.buildHealthResponse()
 
-    #expect(response.authentication.authenticated == false)
+    #expect(response.authentication.state == .notConnected)
     #expect(response.authentication.copilotTokenExpiry == nil)
 }
 
@@ -136,11 +136,11 @@ private func makeHandler(
 
     let response = await handler.buildHealthResponse()
 
-    #expect(response.authentication.authenticated == true)
+    #expect(response.authentication.state == .authenticated)
     #expect(response.authentication.copilotTokenExpiry != nil)
 }
 
-@Test func healthReportsNotAuthenticatedWhenExpiredTokenCached() async {
+@Test func healthReportsTokenExpiredWhenExpiredTokenCached() async {
     let expiresAt = Date().addingTimeInterval(-60)
     let authService = MockAuthService()
     authService.mockTokenInfo = CopilotTokenInfo(expiresAt: expiresAt, isAuthenticated: false)
@@ -148,7 +148,7 @@ private func makeHandler(
 
     let response = await handler.buildHealthResponse()
 
-    #expect(response.authentication.authenticated == false)
+    #expect(response.authentication.state == .tokenExpired)
     #expect(response.authentication.copilotTokenExpiry != nil)
 }
 
@@ -217,7 +217,7 @@ private func makeHandler(
     let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
 
     let authentication = try #require(json["authentication"] as? [String: Any])
-    #expect(authentication["authenticated"] as? Bool == true)
+    #expect(authentication["state"] as? String == "authenticated")
     #expect(authentication["copilot_token_expiry"] as? String != nil)
 }
 
