@@ -2,6 +2,7 @@ import Foundation
 
 public struct ConversationContextManager: Sendable {
     private let logger: LoggerProtocol
+    private static let truncationPreviewLength = 200
 
     public init(logger: LoggerProtocol) {
         self.logger = logger
@@ -12,6 +13,13 @@ public struct ConversationContextManager: Sendable {
         tokenLimit: Int,
         recencyWindow: Int
     ) -> [ChatCompletionMessage] {
+        let currentEstimate = estimateTokenCount(messages: messages)
+        if currentEstimate <= tokenLimit {
+            return messages
+        }
+
+        logger.info("Compacting conversation: \(currentEstimate) estimated tokens exceeds budget of \(tokenLimit)")
+
         let recentAssistantToolIndices = findRecentAssistantToolIndices(
             messages: messages,
             count: recencyWindow
@@ -53,9 +61,7 @@ public struct ConversationContextManager: Sendable {
 
         let estimatedTokens = estimateTokenCount(messages: compacted)
         if estimatedTokens > tokenLimit {
-            logger.warn(
-                "Compacted conversation still exceeds token limit: \(estimatedTokens) estimated tokens > \(tokenLimit) limit"
-            )
+            logger.warn("Compacted conversation still exceeds token limit: \(estimatedTokens) estimated tokens > \(tokenLimit) limit")
         }
 
         return compacted
@@ -123,7 +129,20 @@ public struct ConversationContextManager: Sendable {
 
     private func truncateToolResult(message: ChatCompletionMessage) -> ChatCompletionMessage {
         let originalLength = extractContentLength(content: message.content)
-        let replacement = "[Result truncated — original \(originalLength) chars]"
+        let truncationNote = "[Result truncated — original \(originalLength) chars]"
+
+        if originalLength <= truncationNote.count {
+            return message
+        }
+
+        let replacement: String
+        if originalLength > Self.truncationPreviewLength * 2 {
+            let preview = extractContentPrefix(content: message.content, maxLength: Self.truncationPreviewLength)
+            replacement = "\(preview)\n\n\(truncationNote)"
+        } else {
+            replacement = truncationNote
+        }
+
         return ChatCompletionMessage(
             role: message.role,
             content: .text(replacement),
@@ -167,6 +186,27 @@ public struct ConversationContextManager: Sendable {
             return total
         case .none:
             return 0
+        }
+    }
+
+    private func extractContentPrefix(content: MessageContent?, maxLength: Int) -> String {
+        guard let content else { return "" }
+        switch content {
+        case .text(let text):
+            if text.count <= maxLength { return text }
+            return String(text.prefix(maxLength))
+        case .parts(let parts):
+            var result = ""
+            for part in parts {
+                if let text = part.text {
+                    let remaining = maxLength - result.count
+                    if remaining <= 0 { break }
+                    result += String(text.prefix(remaining))
+                }
+            }
+            return result
+        case .none:
+            return ""
         }
     }
 }

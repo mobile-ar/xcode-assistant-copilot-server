@@ -54,7 +54,7 @@ struct ConversationContextManagerTests {
             ChatCompletionMessage(role: .user, content: .text("Follow up")),
         ]
 
-        let result = sut.compact(messages: messages, tokenLimit: 100_000, recencyWindow: 1)
+        let result = sut.compact(messages: messages, tokenLimit: 1, recencyWindow: 1)
 
         #expect(extractText(result[4]) == "Recent tool result")
 
@@ -78,7 +78,7 @@ struct ConversationContextManagerTests {
             ChatCompletionMessage(role: .user, content: .text("Done?")),
         ]
 
-        let result = sut.compact(messages: messages, tokenLimit: 100_000, recencyWindow: 1)
+        let result = sut.compact(messages: messages, tokenLimit: 1, recencyWindow: 1)
 
         let truncatedTool = result[2]
         #expect(truncatedTool.role == .tool)
@@ -102,7 +102,7 @@ struct ConversationContextManagerTests {
             ChatCompletionMessage(role: .user, content: .text("Thanks")),
         ]
 
-        let result = sut.compact(messages: messages, tokenLimit: 100_000, recencyWindow: 1)
+        let result = sut.compact(messages: messages, tokenLimit: 1, recencyWindow: 1)
 
         let oldAssistant = result[1]
         #expect(oldAssistant.toolCalls?.count == 1)
@@ -154,6 +154,88 @@ struct ConversationContextManagerTests {
         _ = sut.compact(messages: messages, tokenLimit: 100_000, recencyWindow: 0)
 
         #expect(logger.warnMessages.isEmpty)
+    }
+
+    @Test
+    func compactSkipsCompactionWhenUnderTokenLimit() {
+        let messages: [ChatCompletionMessage] = [
+            ChatCompletionMessage(role: .system, content: .text("System")),
+            ChatCompletionMessage(role: .assistant, content: nil, toolCalls: [
+                ToolCall(id: "call_1", type: "function", function: ToolCallFunction(name: "read_file", arguments: "{\"path\":\"file.txt\"}")),
+            ]),
+            ChatCompletionMessage(role: .tool, content: .text("File contents here"), toolCallId: "call_1"),
+            ChatCompletionMessage(role: .assistant, content: nil, toolCalls: [
+                ToolCall(id: "call_2", type: "function", function: ToolCallFunction(name: "write_file", arguments: "{\"content\":\"new stuff\"}")),
+            ]),
+            ChatCompletionMessage(role: .tool, content: .text("File written successfully"), toolCallId: "call_2"),
+            ChatCompletionMessage(role: .user, content: .text("Thanks")),
+        ]
+
+        let result = sut.compact(messages: messages, tokenLimit: 100_000, recencyWindow: 1)
+
+        #expect(result.count == 6)
+        #expect(extractText(result[2]) == "File contents here")
+        #expect(result[1].toolCalls?.first?.function.arguments == "{\"path\":\"file.txt\"}")
+        #expect(extractText(result[4]) == "File written successfully")
+        #expect(result[3].toolCalls?.first?.function.arguments == "{\"content\":\"new stuff\"}")
+        #expect(logger.infoMessages.isEmpty)
+    }
+
+    @Test
+    func compactPreservesPreviewForLongToolResults() {
+        let longContent = String(repeating: "A", count: 500)
+        let messages: [ChatCompletionMessage] = [
+            ChatCompletionMessage(role: .system, content: .text("System")),
+            ChatCompletionMessage(role: .assistant, content: nil, toolCalls: [
+                ToolCall(id: "call_1", type: "function", function: ToolCallFunction(name: "read_file", arguments: "{\"path\":\"big.txt\"}")),
+            ]),
+            ChatCompletionMessage(role: .tool, content: .text(longContent), toolCallId: "call_1"),
+            ChatCompletionMessage(role: .assistant, content: nil, toolCalls: [
+                ToolCall(id: "call_2", type: "function", function: ToolCallFunction(name: "done", arguments: "{}")),
+            ]),
+            ChatCompletionMessage(role: .tool, content: .text("ok"), toolCallId: "call_2"),
+            ChatCompletionMessage(role: .user, content: .text("Next")),
+        ]
+
+        let result = sut.compact(messages: messages, tokenLimit: 1, recencyWindow: 1)
+
+        let truncatedText = extractText(result[2])!
+        let expectedPreview = String(repeating: "A", count: 200)
+        #expect(truncatedText.hasPrefix(expectedPreview))
+        #expect(truncatedText.contains("[Result truncated — original \(longContent.count) chars]"))
+    }
+
+    @Test
+    func compactKeepsVeryShortToolResultsUnchangedDuringCompaction() {
+        let shortResult = "OK"
+        let messages: [ChatCompletionMessage] = [
+            ChatCompletionMessage(role: .system, content: .text("System")),
+            ChatCompletionMessage(role: .assistant, content: nil, toolCalls: [
+                ToolCall(id: "call_1", type: "function", function: ToolCallFunction(name: "confirm", arguments: "{}")),
+            ]),
+            ChatCompletionMessage(role: .tool, content: .text(shortResult), toolCallId: "call_1"),
+            ChatCompletionMessage(role: .assistant, content: nil, toolCalls: [
+                ToolCall(id: "call_2", type: "function", function: ToolCallFunction(name: "finish", arguments: "{}")),
+            ]),
+            ChatCompletionMessage(role: .tool, content: .text("Done"), toolCallId: "call_2"),
+            ChatCompletionMessage(role: .user, content: .text("Thanks")),
+        ]
+
+        let result = sut.compact(messages: messages, tokenLimit: 1, recencyWindow: 1)
+
+        #expect(extractText(result[2]) == shortResult)
+    }
+
+    @Test
+    func compactLogsInfoWhenCompactionTriggered() {
+        let messages: [ChatCompletionMessage] = [
+            ChatCompletionMessage(role: .system, content: .text(String(repeating: "x", count: 400))),
+            ChatCompletionMessage(role: .user, content: .text("Question")),
+        ]
+
+        _ = sut.compact(messages: messages, tokenLimit: 10, recencyWindow: 0)
+
+        #expect(logger.infoMessages.contains { $0.contains("Compacting conversation") })
     }
 
     @Test
@@ -248,7 +330,7 @@ struct ConversationContextManagerTests {
             ChatCompletionMessage(role: .user, content: .text("Next")),
         ]
 
-        let result = sut.compact(messages: messages, tokenLimit: 100_000, recencyWindow: 1)
+        let result = sut.compact(messages: messages, tokenLimit: 1, recencyWindow: 1)
 
         #expect(extractText(result[2]) == "Result A")
         #expect(extractText(result[3]) == "Result B")
@@ -286,7 +368,7 @@ struct ConversationContextManagerTests {
             ChatCompletionMessage(role: .user, content: .text("Ok")),
         ]
 
-        let result = sut.compact(messages: messages, tokenLimit: 100_000, recencyWindow: 1)
+        let result = sut.compact(messages: messages, tokenLimit: 1, recencyWindow: 1)
 
         let truncated = result[2]
         #expect(truncated.toolCallId == "call_old")
@@ -308,7 +390,7 @@ struct ConversationContextManagerTests {
             ChatCompletionMessage(role: .user, content: .text("Great")),
         ]
 
-        let result = sut.compact(messages: messages, tokenLimit: 100_000, recencyWindow: 1)
+        let result = sut.compact(messages: messages, tokenLimit: 1, recencyWindow: 1)
 
         let strippedCall = result[1].toolCalls?.first
         #expect(strippedCall?.index == 0)

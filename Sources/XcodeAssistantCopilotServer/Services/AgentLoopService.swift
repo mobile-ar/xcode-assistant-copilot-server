@@ -94,9 +94,10 @@ struct AgentLoopService: AgentLoopServiceProtocol, Sendable {
             iteration += 1
             logger.debug("Agent loop iteration \(iteration)")
 
+            let availableForMessages = max(0, effectiveTokenLimit - toolsTokenEstimate)
             let compactedMessages = contextManager.compact(
                 messages: messages,
-                tokenLimit: effectiveTokenLimit,
+                tokenLimit: availableForMessages,
                 recencyWindow: configuration.contextRecencyWindow
             )
 
