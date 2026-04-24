@@ -397,3 +397,119 @@ private func writeJSONEditorStyle(_ json: String, to url: URL) throws {
 
     #expect(completed == true)
 }
+
+@Test func watcherYieldsConfigAfterFileDeletedAndRecreated() async throws {
+    let tempFile = makeTempFilePath()
+    try writeJSONNonAtomic(validBaseJSON, to: tempFile)
+    defer { try? FileManager.default.removeItem(at: tempFile) }
+
+    let logger = MockLogger()
+    let loader = ConfigurationLoader(logger: logger)
+    let watcher = ConfigurationWatcher(path: tempFile.path, loader: loader, logger: logger)
+
+    let stream = await watcher.changes()
+    await watcher.start()
+    defer { Task { await watcher.stop() } }
+
+    try await Task.sleep(for: .milliseconds(200))
+    try FileManager.default.removeItem(at: tempFile)
+
+    try await Task.sleep(for: .milliseconds(300))
+    try writeJSONNonAtomic(updatedAllowedCliToolsJSON, to: tempFile)
+
+    let receivedConfig: ServerConfiguration? = await withTaskGroup(of: ServerConfiguration?.self) { group in
+        group.addTask {
+            for await config in stream {
+                return config
+            }
+            return nil
+        }
+        group.addTask {
+            try? await Task.sleep(for: .seconds(5))
+            return nil
+        }
+        let result = await group.next() ?? nil
+        group.cancelAll()
+        return result
+    }
+
+    let config = try #require(receivedConfig, "Watcher did not yield a config after file was deleted and recreated")
+    #expect(config.allowedCliTools == ["git", "xcodebuild"])
+}
+
+@Test func watcherLogsWarningWhenFileIsDeletedAndNeverRecreated() async throws {
+    let tempFile = makeTempFilePath()
+    try writeJSONNonAtomic(validBaseJSON, to: tempFile)
+
+    let logger = MockLogger()
+    let loader = ConfigurationLoader(logger: logger)
+    let watcher = ConfigurationWatcher(path: tempFile.path, loader: loader, logger: logger)
+
+    let stream = await watcher.changes()
+    await watcher.start()
+    defer { Task { await watcher.stop() } }
+
+    try await Task.sleep(for: .milliseconds(200))
+    try FileManager.default.removeItem(at: tempFile)
+
+    try await Task.sleep(for: .milliseconds(2500))
+
+    #expect(logger.warnMessages.contains { $0.contains("giving up watching") })
+
+    let receivedConfig: ServerConfiguration? = await withTaskGroup(of: ServerConfiguration?.self) { group in
+        group.addTask {
+            for await config in stream {
+                return config
+            }
+            return nil
+        }
+        group.addTask {
+            try? await Task.sleep(for: .milliseconds(500))
+            return nil
+        }
+        let result = await group.next() ?? nil
+        group.cancelAll()
+        return result
+    }
+
+    #expect(receivedConfig == nil)
+}
+
+@Test func watcherYieldsConfigAfterFileDeletedAndRecreatedWithDelay() async throws {
+    let tempFile = makeTempFilePath()
+    try writeJSONNonAtomic(validBaseJSON, to: tempFile)
+    defer { try? FileManager.default.removeItem(at: tempFile) }
+
+    let logger = MockLogger()
+    let loader = ConfigurationLoader(logger: logger)
+    let watcher = ConfigurationWatcher(path: tempFile.path, loader: loader, logger: logger)
+
+    let stream = await watcher.changes()
+    await watcher.start()
+    defer { Task { await watcher.stop() } }
+
+    try await Task.sleep(for: .milliseconds(200))
+    try FileManager.default.removeItem(at: tempFile)
+
+    try await Task.sleep(for: .milliseconds(800))
+    try writeJSONNonAtomic(updatedAllowedCliToolsJSON, to: tempFile)
+
+    let receivedConfig: ServerConfiguration? = await withTaskGroup(of: ServerConfiguration?.self) { group in
+        group.addTask {
+            for await config in stream {
+                return config
+            }
+            return nil
+        }
+        group.addTask {
+            try? await Task.sleep(for: .seconds(5))
+            return nil
+        }
+        let result = await group.next() ?? nil
+        group.cancelAll()
+        return result
+    }
+
+    let config = try #require(receivedConfig, "Watcher did not yield a config after delayed file recreation")
+    #expect(config.allowedCliTools == ["git", "xcodebuild"])
+}

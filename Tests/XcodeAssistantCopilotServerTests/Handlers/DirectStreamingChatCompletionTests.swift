@@ -124,6 +124,148 @@ struct DirectStreamingChatCompletionTests {
         }
     }
 
+    @Test func reasoningEffortRetryOn400DowngradesEffort() async throws {
+        let mockAPI = MockCopilotAPIService()
+        mockAPI.streamChatCompletionsResults = [
+            .failure(CopilotAPIError.requestFailed(statusCode: 400, body: "reasoning effort too high")),
+            .success(MockCopilotAPIService.makeContentStream(content: "ok"))
+        ]
+        let reasoningResolver = MockReasoningEffortResolver()
+        let strategy = makeStrategy(copilotAPI: mockAPI, reasoningEffortResolver: reasoningResolver)
+
+        let response = try await strategy.streamResponse(
+            request: makeRequest(),
+            credentials: testCredentials,
+            configuration: ServerConfiguration(reasoningEffort: .xhigh)
+        )
+
+        #expect(response.status == .ok)
+        #expect(mockAPI.streamChatCompletionsCallCount == 2)
+        #expect(mockAPI.capturedChatRequests[1].reasoningEffort == .high)
+        #expect(reasoningResolver.recordedMaxEfforts.count == 1)
+        #expect(reasoningResolver.recordedMaxEfforts[0].effort == .high)
+        #expect(reasoningResolver.recordedMaxEfforts[0].modelId == "gpt-4o")
+    }
+
+    @Test func reasoningEffortRetryDowngradesThroughMultipleLevels() async throws {
+        let mockAPI = MockCopilotAPIService()
+        mockAPI.streamChatCompletionsResults = [
+            .failure(CopilotAPIError.requestFailed(statusCode: 400, body: "too high")),
+            .failure(CopilotAPIError.requestFailed(statusCode: 400, body: "still too high")),
+            .success(MockCopilotAPIService.makeContentStream(content: "ok"))
+        ]
+        let reasoningResolver = MockReasoningEffortResolver()
+        let strategy = makeStrategy(copilotAPI: mockAPI, reasoningEffortResolver: reasoningResolver)
+
+        let response = try await strategy.streamResponse(
+            request: makeRequest(),
+            credentials: testCredentials,
+            configuration: ServerConfiguration(reasoningEffort: .xhigh)
+        )
+
+        #expect(response.status == .ok)
+        #expect(mockAPI.streamChatCompletionsCallCount == 3)
+        #expect(mockAPI.capturedChatRequests[1].reasoningEffort == .high)
+        #expect(mockAPI.capturedChatRequests[2].reasoningEffort == .medium)
+    }
+
+    @Test func reasoningEffortRetryRemovesEffortWhenAtLowestLevel() async throws {
+        let mockAPI = MockCopilotAPIService()
+        mockAPI.streamChatCompletionsResults = [
+            .failure(CopilotAPIError.requestFailed(statusCode: 400, body: "rejected")),
+            .success(MockCopilotAPIService.makeContentStream(content: "ok"))
+        ]
+        let reasoningResolver = MockReasoningEffortResolver()
+        let strategy = makeStrategy(copilotAPI: mockAPI, reasoningEffortResolver: reasoningResolver)
+
+        let response = try await strategy.streamResponse(
+            request: makeRequest(),
+            credentials: testCredentials,
+            configuration: ServerConfiguration(reasoningEffort: .low)
+        )
+
+        #expect(response.status == .ok)
+        #expect(mockAPI.streamChatCompletionsCallCount == 2)
+        #expect(mockAPI.capturedChatRequests[1].reasoningEffort == nil)
+    }
+
+    @Test func reasoningEffortRetryDoesNotRetryNon400Errors() async throws {
+        let mockAPI = MockCopilotAPIService()
+        mockAPI.streamChatCompletionsResults = [
+            .failure(CopilotAPIError.requestFailed(statusCode: 500, body: "server error"))
+        ]
+        let strategy = makeStrategy(copilotAPI: mockAPI)
+
+        let response = try await strategy.streamResponse(
+            request: makeRequest(),
+            credentials: testCredentials,
+            configuration: ServerConfiguration(reasoningEffort: .xhigh)
+        )
+
+        #expect(response.status == .internalServerError)
+        #expect(mockAPI.streamChatCompletionsCallCount == 1)
+    }
+
+    @Test func reasoningEffortRetryDoesNotRetryWhenEffortIsNil() async throws {
+        let mockAPI = MockCopilotAPIService()
+        mockAPI.streamChatCompletionsResults = [
+            .failure(CopilotAPIError.requestFailed(statusCode: 400, body: "bad request"))
+        ]
+        let strategy = makeStrategy(copilotAPI: mockAPI)
+
+        let response = try await strategy.streamResponse(
+            request: makeRequest(),
+            credentials: testCredentials,
+            configuration: ServerConfiguration(reasoningEffort: nil)
+        )
+
+        #expect(response.status == .internalServerError)
+        #expect(mockAPI.streamChatCompletionsCallCount == 1)
+    }
+
+    @Test func reasoningEffortRetryExhaustsRetriesAndMakesFinalAttempt() async throws {
+        let mockAPI = MockCopilotAPIService()
+        mockAPI.streamChatCompletionsResults = [
+            .failure(CopilotAPIError.requestFailed(statusCode: 400, body: "retry 1")),
+            .failure(CopilotAPIError.requestFailed(statusCode: 400, body: "retry 2")),
+            .failure(CopilotAPIError.requestFailed(statusCode: 400, body: "retry 3")),
+            .success(MockCopilotAPIService.makeContentStream(content: "final ok"))
+        ]
+        let reasoningResolver = MockReasoningEffortResolver()
+        let strategy = makeStrategy(copilotAPI: mockAPI, reasoningEffortResolver: reasoningResolver)
+
+        let response = try await strategy.streamResponse(
+            request: makeRequest(),
+            credentials: testCredentials,
+            configuration: ServerConfiguration(reasoningEffort: .xhigh)
+        )
+
+        #expect(response.status == .ok)
+        #expect(mockAPI.streamChatCompletionsCallCount == 4)
+        #expect(mockAPI.capturedChatRequests[3].reasoningEffort == .low)
+    }
+
+    @Test func reasoningEffortRetryRecordsMaxEffortOnDowngrade() async throws {
+        let mockAPI = MockCopilotAPIService()
+        mockAPI.streamChatCompletionsResults = [
+            .failure(CopilotAPIError.requestFailed(statusCode: 400, body: "too high")),
+            .success(MockCopilotAPIService.makeContentStream(content: "ok"))
+        ]
+        let reasoningResolver = MockReasoningEffortResolver()
+        let strategy = makeStrategy(copilotAPI: mockAPI, reasoningEffortResolver: reasoningResolver)
+
+        let response = try await strategy.streamResponse(
+            request: makeRequest(),
+            credentials: testCredentials,
+            configuration: ServerConfiguration(reasoningEffort: .xhigh)
+        )
+
+        #expect(response.status == .ok)
+        #expect(reasoningResolver.recordedMaxEfforts.count == 1)
+        #expect(reasoningResolver.recordedMaxEfforts[0].effort == .high)
+        #expect(reasoningResolver.recordedMaxEfforts[0].modelId == "gpt-4o")
+    }
+
     private func makeStrategy(
         copilotAPI: CopilotAPIServiceProtocol = MockCopilotAPIService(),
         modelEndpointResolver: ModelEndpointResolverProtocol = MockModelEndpointResolver(),
