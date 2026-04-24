@@ -68,7 +68,7 @@ struct AgentLoopService: AgentLoopServiceProtocol, Sendable {
         writer: some AgentStreamWriterProtocol,
         configuration: ServerConfiguration
     ) async {
-        let formatter = AgentProgressFormatter()
+        let formatter = AgentProgressFormatter(logger: logger)
         var currentCredentials = credentials
         let contextManager = ConversationContextManager(logger: logger)
         var messages = request.messages

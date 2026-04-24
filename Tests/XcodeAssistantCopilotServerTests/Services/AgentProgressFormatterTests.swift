@@ -1,8 +1,14 @@
 @testable import XcodeAssistantCopilotServer
+import Synchronization
 import Testing
 
 @Suite struct AgentProgressFormatterTests {
-    private let formatter = AgentProgressFormatter()
+    private let logger = MockLogger()
+    private let formatter: AgentProgressFormatter
+
+    init() {
+        formatter = AgentProgressFormatter(logger: logger)
+    }
 
     private func makeToolCall(name: String, arguments: String = "{}") -> ToolCall {
         ToolCall(
@@ -275,5 +281,21 @@ import Testing
 
         #expect(result.contains("Error A"))
         #expect(result.contains("Error B"))
+    }
+
+    @Test func formattedToolCallLogsMalformedJSON() {
+        let toolCall = makeToolCall(
+            name: "XcodeWrite",
+            arguments: "{malformed json"
+        )
+        let _ = formatter.formattedToolCall(toolCall)
+
+        #expect(logger.debugMessages.contains(where: { $0.contains("Failed to parse JSON") }))
+    }
+
+    @Test func formattedToolResultLogsMalformedJSON() {
+        let _ = formatter.formattedToolResult("{not valid json")
+
+        #expect(logger.debugMessages.contains(where: { $0.contains("Failed to parse JSON") }))
     }
 }

@@ -1,6 +1,12 @@
 import Foundation
 
 struct AgentProgressFormatter: Sendable {
+    private let logger: LoggerProtocol
+
+    init(logger: LoggerProtocol) {
+        self.logger = logger
+    }
+
     func formattedToolCall(_ toolCall: ToolCall) -> String {
         let toolName = toolCall.function.name ?? "unknown"
         let arguments = parseJSON(toolCall.function.arguments)
@@ -112,18 +118,21 @@ struct AgentProgressFormatter: Sendable {
     }
 
     private func languageFromExtension(of path: String) -> String? {
-        let ext = (path as NSString).pathExtension.lowercased()
-        guard !ext.isEmpty else { return nil }
+        guard let dotIndex = path.lastIndex(of: ".") else { return nil }
+        let ext = String(path[path.index(after: dotIndex)...]).lowercased()
+        guard !ext.isEmpty, !ext.contains("/") else { return nil }
         return ext
     }
 
     private func parseJSON(_ string: String?) -> [String: Any]? {
-        guard let string,
-              !string.isEmpty,
-              let data = string.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let string, !string.isEmpty else { return nil }
+        guard let data = string.data(using: .utf8) else { return nil }
+        do {
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            return json
+        } catch {
+            logger.debug("Failed to parse JSON in progress formatter: \(error.localizedDescription)")
             return nil
         }
-        return json
     }
 }
