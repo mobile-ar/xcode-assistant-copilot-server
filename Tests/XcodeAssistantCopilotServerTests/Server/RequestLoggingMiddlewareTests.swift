@@ -27,7 +27,29 @@ private func buildApp(logger: MockLogger) -> some ApplicationProtocol {
     return Application(router: router)
 }
 
-@Test func logsMethodPathStatusCodeAndDuration() async throws {
+private func extractRequestID(from message: String) -> String? {
+    guard message.hasPrefix("["),
+          let closingBracket = message.firstIndex(of: "]") else {
+        return nil
+    }
+    let start = message.index(after: message.startIndex)
+    return String(message[start..<closingBracket])
+}
+
+private func isValidUUID(_ string: String) -> Bool {
+    let parts = string.split(separator: "-")
+    guard parts.count == 5 else { return false }
+    let expectedLengths = [8, 4, 4, 4, 12]
+    for (part, length) in zip(parts, expectedLengths) {
+        guard part.count == length,
+              part.allSatisfy({ $0.isHexDigit }) else {
+            return false
+        }
+    }
+    return true
+}
+
+@Test func logsMethodPathStatusCodeAndDurationWithRequestID() async throws {
     let logger = MockLogger()
     let app = buildApp(logger: logger)
 
@@ -36,12 +58,15 @@ private func buildApp(logger: MockLogger) -> some ApplicationProtocol {
         #expect(response.status == .ok)
         #expect(logger.infoMessages.count == 1)
         let message = logger.infoMessages[0]
-        #expect(message.hasPrefix("GET /health 200 "))
+        let requestID = extractRequestID(from: message)
+        #expect(requestID != nil)
+        #expect(isValidUUID(requestID!))
+        #expect(message.contains("GET /health 200 "))
         #expect(message.contains("ms") || message.contains("s"))
     }
 }
 
-@Test func logsPostMethod() async throws {
+@Test func logsPostMethodWithRequestID() async throws {
     let logger = MockLogger()
     let app = buildApp(logger: logger)
 
@@ -49,11 +74,15 @@ private func buildApp(logger: MockLogger) -> some ApplicationProtocol {
         let response = try await client.execute(uri: "/v1/chat/completions", method: .post)
         #expect(response.status == .ok)
         #expect(logger.infoMessages.count == 1)
-        #expect(logger.infoMessages[0].hasPrefix("POST /v1/chat/completions 200 "))
+        let message = logger.infoMessages[0]
+        #expect(message.contains("POST /v1/chat/completions 200 "))
+        let requestID = extractRequestID(from: message)
+        #expect(requestID != nil)
+        #expect(isValidUUID(requestID!))
     }
 }
 
-@Test func logsNonSuccessStatusCodes() async throws {
+@Test func logsNonSuccessStatusCodesWithRequestID() async throws {
     let logger = MockLogger()
     let app = buildApp(logger: logger)
 
@@ -61,11 +90,15 @@ private func buildApp(logger: MockLogger) -> some ApplicationProtocol {
         let response = try await client.execute(uri: "/v1/models", method: .get)
         #expect(response.status == .notFound)
         #expect(logger.infoMessages.count == 1)
-        #expect(logger.infoMessages[0].hasPrefix("GET /v1/models 404 "))
+        let message = logger.infoMessages[0]
+        #expect(message.contains("GET /v1/models 404 "))
+        let requestID = extractRequestID(from: message)
+        #expect(requestID != nil)
+        #expect(isValidUUID(requestID!))
     }
 }
 
-@Test func logsForbiddenStatusCode() async throws {
+@Test func logsForbiddenStatusCodeWithRequestID() async throws {
     let logger = MockLogger()
     let app = buildApp(logger: logger)
 
@@ -73,11 +106,15 @@ private func buildApp(logger: MockLogger) -> some ApplicationProtocol {
         let response = try await client.execute(uri: "/forbidden", method: .get)
         #expect(response.status == .forbidden)
         #expect(logger.infoMessages.count == 1)
-        #expect(logger.infoMessages[0].hasPrefix("GET /forbidden 403 "))
+        let message = logger.infoMessages[0]
+        #expect(message.contains("GET /forbidden 403 "))
+        let requestID = extractRequestID(from: message)
+        #expect(requestID != nil)
+        #expect(isValidUUID(requestID!))
     }
 }
 
-@Test func logsWhenHandlerThrows() async throws {
+@Test func logsWhenHandlerThrowsWithRequestID() async throws {
     let logger = MockLogger()
     let app = buildApp(logger: logger)
 
@@ -85,7 +122,11 @@ private func buildApp(logger: MockLogger) -> some ApplicationProtocol {
         let response = try await client.execute(uri: "/error", method: .get)
         #expect(response.status == .internalServerError)
         #expect(logger.infoMessages.count == 1)
-        #expect(logger.infoMessages[0].hasPrefix("GET /error 500 "))
+        let message = logger.infoMessages[0]
+        #expect(message.contains("GET /error 500 "))
+        let requestID = extractRequestID(from: message)
+        #expect(requestID != nil)
+        #expect(isValidUUID(requestID!))
     }
 }
 
@@ -114,7 +155,7 @@ private func buildApp(logger: MockLogger) -> some ApplicationProtocol {
     }
 }
 
-@Test func logsEachRequestSeparately() async throws {
+@Test func logsEachRequestWithUniqueRequestID() async throws {
     let logger = MockLogger()
     let app = buildApp(logger: logger)
 
@@ -123,12 +164,17 @@ private func buildApp(logger: MockLogger) -> some ApplicationProtocol {
         _ = try await client.execute(uri: "/v1/chat/completions", method: .post)
 
         #expect(logger.infoMessages.count == 2)
-        #expect(logger.infoMessages[0].hasPrefix("GET /health 200 "))
-        #expect(logger.infoMessages[1].hasPrefix("POST /v1/chat/completions 200 "))
+        let id1 = extractRequestID(from: logger.infoMessages[0])
+        let id2 = extractRequestID(from: logger.infoMessages[1])
+        #expect(id1 != nil)
+        #expect(id2 != nil)
+        #expect(id1 != id2)
+        #expect(logger.infoMessages[0].contains("GET /health 200 "))
+        #expect(logger.infoMessages[1].contains("POST /v1/chat/completions 200 "))
     }
 }
 
-@Test func logsUnknownRouteAs404() async throws {
+@Test func logsUnknownRouteAs404WithRequestID() async throws {
     let logger = MockLogger()
     let app = buildApp(logger: logger)
 
@@ -136,6 +182,34 @@ private func buildApp(logger: MockLogger) -> some ApplicationProtocol {
         let response = try await client.execute(uri: "/nonexistent", method: .get)
         #expect(response.status == .notFound)
         #expect(logger.infoMessages.count == 1)
-        #expect(logger.infoMessages[0].hasPrefix("GET /nonexistent 404 "))
+        let message = logger.infoMessages[0]
+        #expect(message.contains("GET /nonexistent 404 "))
+        let requestID = extractRequestID(from: message)
+        #expect(requestID != nil)
+        #expect(isValidUUID(requestID!))
+    }
+}
+
+@Test func responseIncludesRequestIDHeader() async throws {
+    let logger = MockLogger()
+    let app = buildApp(logger: logger)
+
+    try await app.test(.router) { client in
+        let response = try await client.execute(uri: "/health", method: .get)
+        let headerValue = response.headers[HTTPField.Name("X-Request-Id")!]
+        #expect(headerValue != nil)
+        #expect(isValidUUID(headerValue!))
+    }
+}
+
+@Test func responseRequestIDHeaderMatchesLoggedID() async throws {
+    let logger = MockLogger()
+    let app = buildApp(logger: logger)
+
+    try await app.test(.router) { client in
+        let response = try await client.execute(uri: "/health", method: .get)
+        let headerValue = response.headers[HTTPField.Name("X-Request-Id")!]
+        let loggedID = extractRequestID(from: logger.infoMessages[0])
+        #expect(headerValue == loggedID)
     }
 }
