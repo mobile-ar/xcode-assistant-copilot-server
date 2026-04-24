@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import XcodeAssistantCopilotServer
 
-private func makeService(httpClient: MockHTTPClient = MockHTTPClient(), logger: LoggerProtocol = MockLogger(), configurationStore: ConfigurationStore = ConfigurationStore(initial: ServerConfiguration()), requestHeaders: CopilotRequestHeadersProtocol = MockCopilotRequestHeaders()) -> CopilotAPIService {
-    CopilotAPIService(httpClient: httpClient, logger: logger, configurationStore: configurationStore, requestHeaders: requestHeaders)
+private func makeService(httpClient: MockHTTPClient = MockHTTPClient(), logger: LoggerProtocol = MockLogger(), configurationStore: ConfigurationStore = ConfigurationStore(initial: ServerConfiguration()), requestHeaders: CopilotRequestHeadersProtocol = MockCopilotRequestHeaders(), retryPolicy: RetryPolicy = .disabled) -> CopilotAPIService {
+    CopilotAPIService(httpClient: httpClient, logger: logger, configurationStore: configurationStore, requestHeaders: requestHeaders, retryPolicy: retryPolicy)
 }
 
 private let testCredentials = CopilotCredentials(token: "test-copilot-token", apiEndpoint: "https://api.individual.githubcopilot.com")
@@ -495,4 +495,155 @@ private let testCredentials = CopilotCredentials(token: "test-copilot-token", ap
     } catch {
         #expect(logger.errorMessages.contains { $0.contains("Rate limit exceeded") })
     }
+}
+
+@Test func listModelsRetriesOn500AndSucceeds() async throws {
+    let mock = MockHTTPClient()
+    let modelsJSON = """
+    {"data":[{"id":"gpt-4o"}]}
+    """
+    mock.executeResults = [
+        .success(DataResponse(data: Data(), statusCode: 500)),
+        .success(DataResponse(data: modelsJSON.data(using: .utf8)!, statusCode: 200))
+    ]
+
+    let service = makeService(httpClient: mock, retryPolicy: RetryPolicy(maxRetries: 2, baseDelayMilliseconds: 1))
+    let models = try await service.listModels(credentials: testCredentials)
+
+    #expect(models.count == 1)
+    #expect(models[0].id == "gpt-4o")
+    #expect(mock.executeCallCount == 2)
+}
+
+@Test func listModelsRetriesOnNetworkErrorAndSucceeds() async throws {
+    let mock = MockHTTPClient()
+    let modelsJSON = """
+    {"data":[{"id":"gpt-4o"}]}
+    """
+    mock.executeResults = [
+        .failure(HTTPClientError.networkError("connection reset")),
+        .success(DataResponse(data: modelsJSON.data(using: .utf8)!, statusCode: 200))
+    ]
+
+    let service = makeService(httpClient: mock, retryPolicy: RetryPolicy(maxRetries: 2, baseDelayMilliseconds: 1))
+    let models = try await service.listModels(credentials: testCredentials)
+
+    #expect(models.count == 1)
+    #expect(mock.executeCallCount == 2)
+}
+
+@Test func listModelsDoesNotRetryOn401() async {
+    let mock = MockHTTPClient()
+    mock.executeResults = [
+        .success(DataResponse(data: Data(), statusCode: 401))
+    ]
+
+    let service = makeService(httpClient: mock, retryPolicy: RetryPolicy(maxRetries: 2, baseDelayMilliseconds: 1))
+
+    do {
+        _ = try await service.listModels(credentials: testCredentials)
+        Issue.record("Expected CopilotAPIError.unauthorized")
+    } catch is CopilotAPIError {
+        #expect(mock.executeCallCount == 1)
+    } catch {
+        Issue.record("Unexpected error type: \(error)")
+    }
+}
+
+@Test func listModelsExhaustsRetriesAndThrows() async {
+    let mock = MockHTTPClient()
+    mock.executeResults = [
+        .success(DataResponse(data: Data(), statusCode: 502)),
+        .success(DataResponse(data: Data(), statusCode: 503)),
+        .success(DataResponse(data: Data(), statusCode: 500))
+    ]
+
+    let service = makeService(httpClient: mock, retryPolicy: RetryPolicy(maxRetries: 2, baseDelayMilliseconds: 1))
+
+    do {
+        _ = try await service.listModels(credentials: testCredentials)
+        Issue.record("Expected CopilotAPIError.requestFailed")
+    } catch let error as CopilotAPIError {
+        guard case .requestFailed(let statusCode, _) = error else {
+            Issue.record("Expected .requestFailed, got \(error)")
+            return
+        }
+        #expect(statusCode == 500)
+        #expect(mock.executeCallCount == 3)
+    } catch {
+        Issue.record("Unexpected error type: \(error)")
+    }
+}
+
+@Test func streamChatCompletionsRetriesOn502AndSucceeds() async throws {
+    let mock = MockHTTPClient()
+    let lines = AsyncThrowingStream<String, Error> { $0.finish() }
+    mock.streamResults = [
+        .success(StreamResponse(statusCode: 502, content: .errorBody("Bad Gateway"))),
+        .success(StreamResponse(statusCode: 200, content: .lines(lines)))
+    ]
+
+    let service = makeService(httpClient: mock, retryPolicy: RetryPolicy(maxRetries: 2, baseDelayMilliseconds: 1))
+    let request = CopilotChatRequest(
+        model: "gpt-4o",
+        messages: [ChatCompletionMessage(role: .user, content: .text("Hello"))]
+    )
+    _ = try await service.streamChatCompletions(request: request, credentials: testCredentials)
+
+    #expect(mock.streamCallCount == 2)
+}
+
+@Test func streamResponsesRetriesOnNetworkErrorAndSucceeds() async throws {
+    let mock = MockHTTPClient()
+    let lines = AsyncThrowingStream<String, Error> { $0.finish() }
+    mock.streamResults = [
+        .failure(HTTPClientError.networkError("connection reset")),
+        .success(StreamResponse(statusCode: 200, content: .lines(lines)))
+    ]
+
+    let service = makeService(httpClient: mock, retryPolicy: RetryPolicy(maxRetries: 2, baseDelayMilliseconds: 1))
+    let request = ResponsesAPIRequest(
+        model: "o3-mini",
+        input: [.message(ResponsesMessage(role: "user", content: "Hello"))]
+    )
+    _ = try await service.streamResponses(request: request, credentials: testCredentials)
+
+    #expect(mock.streamCallCount == 2)
+}
+
+@Test func streamChatCompletionsDoesNotRetryOn400() async {
+    let mock = MockHTTPClient()
+    mock.streamResults = [
+        .success(StreamResponse(statusCode: 400, content: .errorBody("bad request")))
+    ]
+
+    let service = makeService(httpClient: mock, retryPolicy: RetryPolicy(maxRetries: 2, baseDelayMilliseconds: 1))
+    let request = CopilotChatRequest(
+        model: "gpt-4o",
+        messages: [ChatCompletionMessage(role: .user, content: .text("Hello"))]
+    )
+
+    do {
+        _ = try await service.streamChatCompletions(request: request, credentials: testCredentials)
+        Issue.record("Expected error")
+    } catch {
+        #expect(mock.streamCallCount == 1)
+    }
+}
+
+@Test func retryPolicyLogsWarningOnTransientFailure() async throws {
+    let mock = MockHTTPClient()
+    let logger = MockLogger()
+    let modelsJSON = """
+    {"data":[{"id":"gpt-4o"}]}
+    """
+    mock.executeResults = [
+        .success(DataResponse(data: Data(), statusCode: 500)),
+        .success(DataResponse(data: modelsJSON.data(using: .utf8)!, statusCode: 200))
+    ]
+
+    let service = makeService(httpClient: mock, logger: logger, retryPolicy: RetryPolicy(maxRetries: 2, baseDelayMilliseconds: 1))
+    _ = try await service.listModels(credentials: testCredentials)
+
+    #expect(logger.warnMessages.contains { $0.contains("Transient error") && $0.contains("attempt 1") })
 }

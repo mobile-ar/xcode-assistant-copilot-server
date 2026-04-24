@@ -38,16 +38,24 @@ public struct CopilotAPIService: CopilotAPIServiceProtocol {
     private let sseParser: SSEParser
     private let configurationStore: ConfigurationStore
     private let requestHeaders: CopilotRequestHeadersProtocol
+    private let retryPolicy: RetryPolicy
 
-    public init(httpClient: HTTPClientProtocol, logger: LoggerProtocol, configurationStore: ConfigurationStore, requestHeaders: CopilotRequestHeadersProtocol) {
+    public init(httpClient: HTTPClientProtocol, logger: LoggerProtocol, configurationStore: ConfigurationStore, requestHeaders: CopilotRequestHeadersProtocol, retryPolicy: RetryPolicy = .default) {
         self.httpClient = httpClient
         self.logger = logger
         self.sseParser = SSEParser()
         self.configurationStore = configurationStore
         self.requestHeaders = requestHeaders
+        self.retryPolicy = retryPolicy
     }
 
     public func listModels(credentials: CopilotCredentials) async throws -> [CopilotModel] {
+        try await retryPolicy.execute(logger: logger) {
+            try await self.executeListModels(credentials: credentials)
+        }
+    }
+
+    private func executeListModels(credentials: CopilotCredentials) async throws -> [CopilotModel] {
         let endpoint = ListModelsEndpoint(credentials: credentials, requestHeaders: requestHeaders)
 
         let response: DataResponse
@@ -77,6 +85,15 @@ public struct CopilotAPIService: CopilotAPIServiceProtocol {
     }
 
     public func streamChatCompletions(
+        request: CopilotChatRequest,
+        credentials: CopilotCredentials
+    ) async throws -> AsyncThrowingStream<SSEEvent, Error> {
+        try await retryPolicy.execute(logger: logger) {
+            try await self.executeStreamChatCompletions(request: request, credentials: credentials)
+        }
+    }
+
+    private func executeStreamChatCompletions(
         request: CopilotChatRequest,
         credentials: CopilotCredentials
     ) async throws -> AsyncThrowingStream<SSEEvent, Error> {
@@ -110,6 +127,15 @@ public struct CopilotAPIService: CopilotAPIServiceProtocol {
     }
 
     public func streamResponses(
+        request: ResponsesAPIRequest,
+        credentials: CopilotCredentials
+    ) async throws -> AsyncThrowingStream<SSEEvent, Error> {
+        try await retryPolicy.execute(logger: logger) {
+            try await self.executeStreamResponses(request: request, credentials: credentials)
+        }
+    }
+
+    private func executeStreamResponses(
         request: ResponsesAPIRequest,
         credentials: CopilotCredentials
     ) async throws -> AsyncThrowingStream<SSEEvent, Error> {
