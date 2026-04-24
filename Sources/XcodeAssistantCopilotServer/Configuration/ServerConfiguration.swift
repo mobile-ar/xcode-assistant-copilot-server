@@ -14,6 +14,13 @@ public struct TimeoutsConfiguration: Codable, Sendable {
         self.streamingEndpointTimeoutSeconds = streamingEndpointTimeoutSeconds
         self.httpClientTimeoutSeconds = httpClientTimeoutSeconds
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        requestTimeoutSeconds = try container.decodeIfPresent(UInt64.self, forKey: .requestTimeoutSeconds) ?? 300
+        streamingEndpointTimeoutSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .streamingEndpointTimeoutSeconds) ?? 300
+        httpClientTimeoutSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .httpClientTimeoutSeconds) ?? 300
+    }
 }
 
 public enum ReasoningEffort: String, Codable, Sendable, Comparable {

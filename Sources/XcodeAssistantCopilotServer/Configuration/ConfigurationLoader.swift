@@ -25,6 +25,8 @@ public struct ConfigurationLoader: ConfigurationLoaderProtocol {
     private let logger: LoggerProtocol
     private let defaultConfigDirectory: String
     private let defaultConfigPath: String
+    private let prompter: ConsolePrompterProtocol
+    private let interactive: Bool
 
     public static let productionConfigDirectory: String = {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -69,16 +71,26 @@ public struct ConfigurationLoader: ConfigurationLoaderProtocol {
     }
     """
 
-    public init(logger: LoggerProtocol) {
+    public init(logger: LoggerProtocol, interactive: Bool = true, prompter: ConsolePrompterProtocol = ConsolePrompter()) {
         self.logger = logger
         self.defaultConfigDirectory = Self.productionConfigDirectory
         self.defaultConfigPath = Self.productionConfigPath
+        self.interactive = interactive
+        self.prompter = prompter
     }
 
-    init(logger: LoggerProtocol, defaultConfigDirectory: String, defaultConfigPath: String) {
+    init(
+        logger: LoggerProtocol,
+        defaultConfigDirectory: String,
+        defaultConfigPath: String,
+        interactive: Bool = true,
+        prompter: ConsolePrompterProtocol = ConsolePrompter()
+    ) {
         self.logger = logger
         self.defaultConfigDirectory = defaultConfigDirectory
         self.defaultConfigPath = defaultConfigPath
+        self.interactive = interactive
+        self.prompter = prompter
     }
 
     public func load(from path: String?) throws -> ServerConfiguration {
@@ -193,7 +205,9 @@ public struct ConfigurationLoader: ConfigurationLoaderProtocol {
             reasoningEffort: configuration.reasoningEffort,
             autoApprovePermissions: configuration.autoApprovePermissions,
             timeouts: configuration.timeouts,
-            maxAgentLoopIterations: configuration.maxAgentLoopIterations
+            maxAgentLoopIterations: configuration.maxAgentLoopIterations,
+            contextRecencyWindow: configuration.contextRecencyWindow,
+            modelsCacheTTLSeconds: configuration.modelsCacheTTLSeconds
         )
     }
 
@@ -204,15 +218,29 @@ public struct ConfigurationLoader: ConfigurationLoaderProtocol {
             let defaultJSON = try? JSONSerialization.jsonObject(with: defaultData) as? [String: Any]
         else { return }
 
-        var missingKeys: [String] = []
-        var merged = existingJSON
+        var allMissingKeys: [String] = []
+        let fullyMerged = deepMerge(existing: existingJSON, defaults: defaultJSON, keyPath: "", missingKeys: &allMissingKeys)
 
-        for (key, defaultValue) in defaultJSON where existingJSON[key] == nil {
-            merged[key] = defaultValue
-            missingKeys.append(key)
+        guard !allMissingKeys.isEmpty else { return }
+
+        let mcpKeys = allMissingKeys.filter { $0.hasPrefix("mcpServers") }
+        let nonMCPKeys = allMissingKeys.filter { !$0.hasPrefix("mcpServers") }
+
+        var acceptedMCPKeys: [String] = []
+        var merged = fullyMerged
+
+        if !mcpKeys.isEmpty {
+            let userApproved = promptForMCPBackfill(existingJSON: existingJSON, mcpKeys: mcpKeys)
+            if userApproved {
+                acceptedMCPKeys = mcpKeys
+            } else {
+                merged["mcpServers"] = existingJSON["mcpServers"]
+                logger.info("Skipped MCP server backfill (user declined)")
+            }
         }
 
-        guard !missingKeys.isEmpty else { return }
+        let keysToWrite = nonMCPKeys + acceptedMCPKeys
+        guard !keysToWrite.isEmpty else { return }
 
         do {
             let updatedData = try JSONSerialization.data(
@@ -220,10 +248,64 @@ public struct ConfigurationLoader: ConfigurationLoaderProtocol {
                 options: [.prettyPrinted, .sortedKeys]
             )
             try updatedData.write(to: URL(fileURLWithPath: configPath), options: .atomic)
-            logger.info("Backfilled missing config keys with defaults: \(missingKeys.sorted().joined(separator: ", "))")
+            logger.info("Backfilled missing config keys with defaults: \(keysToWrite.sorted().joined(separator: ", "))")
         } catch {
             logger.warn("Failed to backfill missing config keys: \(error)")
         }
+    }
+
+    private func promptForMCPBackfill(existingJSON: [String: Any], mcpKeys: [String]) -> Bool {
+        guard interactive else { return false }
+
+        let existingMCPServers = existingJSON["mcpServers"] as? [String: Any] ?? [:]
+
+        if existingMCPServers.isEmpty {
+            return prompter.promptYesNo(
+                "Your mcpServers configuration is empty. Add the default Xcode MCP server?"
+            )
+        }
+
+        let subKeyNames = mcpKeys.map { key in
+            let components = key.split(separator: ".")
+            if components.count >= 2 {
+                return String(components[1])
+            }
+            return key
+        }
+        let uniqueServerNames = Array(Set(subKeyNames)).sorted()
+        let serverList = uniqueServerNames.joined(separator: ", ")
+        let keyList = mcpKeys.sorted().joined(separator: ", ")
+
+        return prompter.promptYesNo(
+            "The MCP server(s) '\(serverList)' are missing configuration keys (\(keyList)). Backfill with defaults?"
+        )
+    }
+
+    private func deepMerge(
+        existing: [String: Any],
+        defaults: [String: Any],
+        keyPath: String,
+        missingKeys: inout [String]
+    ) -> [String: Any] {
+        var result = existing
+        for (key, defaultValue) in defaults {
+            let fullKey = keyPath.isEmpty ? key : "\(keyPath).\(key)"
+            guard let existingValue = existing[key] else {
+                result[key] = defaultValue
+                missingKeys.append(fullKey)
+                continue
+            }
+            if let existingDict = existingValue as? [String: Any],
+               let defaultDict = defaultValue as? [String: Any] {
+                result[key] = deepMerge(
+                    existing: existingDict,
+                    defaults: defaultDict,
+                    keyPath: fullKey,
+                    missingKeys: &missingKeys
+                )
+            }
+        }
+        return result
     }
 
     private func validate(_ configuration: ServerConfiguration) throws {

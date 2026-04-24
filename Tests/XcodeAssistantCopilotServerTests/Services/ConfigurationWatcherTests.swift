@@ -88,7 +88,7 @@ private func writeJSONEditorStyle(_ json: String, to url: URL) throws {
     defer { try? FileManager.default.removeItem(at: tempFile) }
 
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
     let watcher = ConfigurationWatcher(path: tempFile.path, loader: loader, logger: logger)
 
     let stream = await watcher.changes()
@@ -128,7 +128,7 @@ private func writeJSONEditorStyle(_ json: String, to url: URL) throws {
     defer { try? FileManager.default.removeItem(at: tempFile) }
 
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
     let watcher = ConfigurationWatcher(path: tempFile.path, loader: loader, logger: logger)
 
     let stream = await watcher.changes()
@@ -167,7 +167,7 @@ private func writeJSONEditorStyle(_ json: String, to url: URL) throws {
     defer { try? FileManager.default.removeItem(at: tempFile) }
 
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
     let watcher = ConfigurationWatcher(path: tempFile.path, loader: loader, logger: logger)
 
     let stream = await watcher.changes()
@@ -212,7 +212,7 @@ private func writeJSONEditorStyle(_ json: String, to url: URL) throws {
     defer { try? FileManager.default.removeItem(at: tempFile) }
 
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
     let watcher = ConfigurationWatcher(path: tempFile.path, loader: loader, logger: logger)
 
     let stream = await watcher.changes()
@@ -273,7 +273,7 @@ private func writeJSONEditorStyle(_ json: String, to url: URL) throws {
     defer { try? FileManager.default.removeItem(at: tempFile) }
 
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
     let watcher = ConfigurationWatcher(path: tempFile.path, loader: loader, logger: logger)
 
     let stream = await watcher.changes()
@@ -311,7 +311,7 @@ private func writeJSONEditorStyle(_ json: String, to url: URL) throws {
     defer { try? FileManager.default.removeItem(at: tempFile) }
 
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
     let watcher = ConfigurationWatcher(path: tempFile.path, loader: loader, logger: logger)
 
     let stream = await watcher.changes()
@@ -372,7 +372,7 @@ private func writeJSONEditorStyle(_ json: String, to url: URL) throws {
     defer { try? FileManager.default.removeItem(at: tempFile) }
 
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
     let watcher = ConfigurationWatcher(path: tempFile.path, loader: loader, logger: logger)
 
     let stream = await watcher.changes()
@@ -404,7 +404,7 @@ private func writeJSONEditorStyle(_ json: String, to url: URL) throws {
     defer { try? FileManager.default.removeItem(at: tempFile) }
 
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
     let watcher = ConfigurationWatcher(path: tempFile.path, loader: loader, logger: logger)
 
     let stream = await watcher.changes()
@@ -442,7 +442,7 @@ private func writeJSONEditorStyle(_ json: String, to url: URL) throws {
     try writeJSONNonAtomic(validBaseJSON, to: tempFile)
 
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
     let watcher = ConfigurationWatcher(path: tempFile.path, loader: loader, logger: logger)
 
     let stream = await watcher.changes()
@@ -481,7 +481,7 @@ private func writeJSONEditorStyle(_ json: String, to url: URL) throws {
     defer { try? FileManager.default.removeItem(at: tempFile) }
 
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
     let watcher = ConfigurationWatcher(path: tempFile.path, loader: loader, logger: logger)
 
     let stream = await watcher.changes()

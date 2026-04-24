@@ -10,9 +10,9 @@ private func makeTempConfigDir() -> (directory: String, configPath: String, clea
     return (tempDir, configPath, cleanup)
 }
 
-private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoader, MockLogger, () -> Void) {
+private func makeLoader(logger: MockLogger = MockLogger(), interactive: Bool = false, prompter: ConsolePrompterProtocol = MockConsolePrompter(answer: false)) -> (ConfigurationLoader, MockLogger, () -> Void) {
     let (dir, path, cleanup) = makeTempConfigDir()
-    let loader = ConfigurationLoader(logger: logger, defaultConfigDirectory: dir, defaultConfigPath: path)
+    let loader = ConfigurationLoader(logger: logger, defaultConfigDirectory: dir, defaultConfigPath: path, interactive: interactive, prompter: prompter)
     return (loader, logger, cleanup)
 }
 
@@ -54,7 +54,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     try customJSON.write(toFile: path, atomically: true, encoding: .utf8)
 
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger, defaultConfigDirectory: dir, defaultConfigPath: path)
+    let loader = ConfigurationLoader(logger: logger, defaultConfigDirectory: dir, defaultConfigPath: path, interactive: false)
     let config = try loader.load(from: nil)
 
     #expect(config.mcpServers.isEmpty)
@@ -81,7 +81,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     try existingJSON.write(toFile: path, atomically: true, encoding: .utf8)
 
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger, defaultConfigDirectory: dir, defaultConfigPath: path)
+    let loader = ConfigurationLoader(logger: logger, defaultConfigDirectory: dir, defaultConfigPath: path, interactive: false)
     let config = try loader.load(from: nil)
 
     #expect(config.bodyLimitMiB == 16)
@@ -119,7 +119,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     #expect(!FileManager.default.fileExists(atPath: dir))
 
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger, defaultConfigDirectory: dir, defaultConfigPath: path)
+    let loader = ConfigurationLoader(logger: logger, defaultConfigDirectory: dir, defaultConfigPath: path, interactive: false)
     let _ = try loader.load(from: nil)
 
     #expect(FileManager.default.fileExists(atPath: dir))
@@ -139,7 +139,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadParsesValidJSONConfig() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -167,7 +167,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadParsesConfigWithMCPServer() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -203,7 +203,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadParsesConfigWithPermissionKinds() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -230,7 +230,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadParsesConfigWithAllPermissionsDenied() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -255,7 +255,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadThrowsOnInvalidJSON() {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let tempDir = FileManager.default.temporaryDirectory
     let configPath = tempDir.appendingPathComponent("test_invalid_\(UUID().uuidString).json")
@@ -269,7 +269,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadThrowsOnBodyLimitTooLow() {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -293,7 +293,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadThrowsOnBodyLimitTooHigh() {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -317,7 +317,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadParsesConfigWithMCPServerTimeout() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -348,7 +348,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadThrowsOnNonPositiveMCPServerTimeout() {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -380,7 +380,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadThrowsOnWildcardMixedWithOtherCliTools() {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -404,7 +404,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadAcceptsWildcardAloneInCliTools() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -428,7 +428,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadThrowsOnLocalMCPServerMissingCommand() {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -457,7 +457,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadThrowsOnLocalMCPServerWithEmptyCommand() {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -487,7 +487,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadThrowsOnHTTPMCPServerMissingURL() {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -515,7 +515,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadResolvesRelativePathsInMCPServerArgs() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -549,7 +549,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadDoesNotResolveAbsolutePathsInMCPServerArgs() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -580,7 +580,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadParsesAllReasoningEffortValues() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let efforts: [(String, ReasoningEffort)] = [
         ("low", .low),
@@ -613,7 +613,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadParsesConfigWithoutReasoningEffort() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -636,7 +636,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadLogsConfigSummary() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -669,7 +669,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadLogsAllCliToolsAllowedSummary() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -721,7 +721,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadParsesConfigWithMultipleMCPServers() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -761,7 +761,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadParsesConfigWithSSEMCPServer() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -968,7 +968,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     defer { try? FileManager.default.removeItem(at: explicitPath) }
 
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger, defaultConfigDirectory: dir, defaultConfigPath: defaultPath)
+    let loader = ConfigurationLoader(logger: logger, defaultConfigDirectory: dir, defaultConfigPath: defaultPath, interactive: false)
     let config = try loader.load(from: explicitPath.path)
 
     #expect(config.bodyLimitMiB == 2)
@@ -976,7 +976,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadParsesConfigWithEnvironmentInMCPServer() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -1041,7 +1041,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadParsesTimeoutsFromConfig() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -1071,7 +1071,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadUsesDefaultTimeoutsWhenNotSpecifiedInConfig() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -1101,7 +1101,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadParsesMaxAgentLoopIterationsFromConfig() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -1125,7 +1125,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadUsesDefaultMaxAgentLoopIterationsWhenNotSpecifiedInConfig() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     let json = """
     {
@@ -1148,7 +1148,7 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
 
 @Test func loadParsesBodyLimitBoundaryValues() throws {
     let logger = MockLogger()
-    let loader = ConfigurationLoader(logger: logger)
+    let loader = ConfigurationLoader(logger: logger, interactive: false)
 
     // bodyLimitMiB == 1 is valid
     let json1 = """
@@ -1208,10 +1208,12 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     try partialJSON.write(toFile: configPath, atomically: true, encoding: .utf8)
 
     let logger = MockLogger()
+    let prompter = MockConsolePrompter(answer: true)
     let loader = ConfigurationLoader(
         logger: logger,
         defaultConfigDirectory: directory,
-        defaultConfigPath: configPath
+        defaultConfigPath: configPath,
+        prompter: prompter
     )
 
     _ = try loader.load(from: nil)
@@ -1272,7 +1274,8 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     let loader = ConfigurationLoader(
         logger: logger,
         defaultConfigDirectory: directory,
-        defaultConfigPath: configPath
+        defaultConfigPath: configPath,
+        interactive: false
     )
 
     let config = try loader.load(from: nil)
@@ -1286,4 +1289,402 @@ private func makeLoader(logger: MockLogger = MockLogger()) -> (ConfigurationLoad
     #expect(updatedJSON?["maxAgentLoopIterations"] != nil)
     #expect(updatedJSON?["timeouts"] != nil)
     #expect(updatedJSON?["reasoningEffort"] != nil)
+}
+
+@Test func loadBackfillsMissingSubKeysInTimeouts() throws {
+    let (directory, configPath, cleanup) = makeTempConfigDir()
+    defer { cleanup() }
+
+    try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+
+    let partialJSON = """
+    {
+      "mcpServers": {},
+      "allowedCliTools": [],
+      "bodyLimitMiB": 4,
+      "excludedFilePatterns": [],
+      "autoApprovePermissions": true,
+      "reasoningEffort": "high",
+      "maxAgentLoopIterations": 20,
+      "contextRecencyWindow": 3,
+      "modelsCacheTTLSeconds": 600,
+      "timeouts": {
+        "requestTimeoutSeconds": 600
+      }
+    }
+    """
+    try partialJSON.write(toFile: configPath, atomically: true, encoding: .utf8)
+
+    let logger = MockLogger()
+    let loader = ConfigurationLoader(
+        logger: logger,
+        defaultConfigDirectory: directory,
+        defaultConfigPath: configPath,
+        interactive: false
+    )
+
+    _ = try loader.load(from: nil)
+
+    let updatedData = try Data(contentsOf: URL(fileURLWithPath: configPath))
+    let updatedJSON = try JSONSerialization.jsonObject(with: updatedData) as? [String: Any]
+    let timeouts = updatedJSON?["timeouts"] as? [String: Any]
+
+    #expect(timeouts?["streamingEndpointTimeoutSeconds"] != nil)
+    #expect(timeouts?["httpClientTimeoutSeconds"] != nil)
+    #expect(timeouts?["requestTimeoutSeconds"] as? Int == 600)
+    #expect(logger.infoMessages.contains { $0.contains("Backfilled missing config keys") })
+}
+
+@Test func loadPreservesExistingSubKeyValues() throws {
+    let (directory, configPath, cleanup) = makeTempConfigDir()
+    defer { cleanup() }
+
+    try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+
+    let fullJSON = """
+    {
+      "mcpServers": {
+        "xcode": {
+          "type": "local",
+          "command": "xcrun",
+          "args": ["mcpbridge"],
+          "allowedTools": ["*"],
+          "timeoutSeconds": 300
+        }
+      },
+      "allowedCliTools": [],
+      "bodyLimitMiB": 4,
+      "excludedFilePatterns": [],
+      "autoApprovePermissions": true,
+      "reasoningEffort": "high",
+      "maxAgentLoopIterations": 20,
+      "contextRecencyWindow": 3,
+      "modelsCacheTTLSeconds": 600,
+      "timeouts": {
+        "requestTimeoutSeconds": 100,
+        "streamingEndpointTimeoutSeconds": 200,
+        "httpClientTimeoutSeconds": 300
+      }
+    }
+    """
+    try fullJSON.write(toFile: configPath, atomically: true, encoding: .utf8)
+
+    let logger = MockLogger()
+    let loader = ConfigurationLoader(
+        logger: logger,
+        defaultConfigDirectory: directory,
+        defaultConfigPath: configPath,
+        interactive: false
+    )
+
+    _ = try loader.load(from: nil)
+
+    let updatedData = try Data(contentsOf: URL(fileURLWithPath: configPath))
+    let updatedJSON = try JSONSerialization.jsonObject(with: updatedData) as? [String: Any]
+    let timeouts = updatedJSON?["timeouts"] as? [String: Any]
+
+    #expect(timeouts?["requestTimeoutSeconds"] as? Int == 100)
+    #expect(timeouts?["streamingEndpointTimeoutSeconds"] as? Int == 200)
+    #expect(timeouts?["httpClientTimeoutSeconds"] as? Int == 300)
+    #expect(!logger.infoMessages.contains { $0.contains("Backfilled missing config keys") })
+}
+
+@Test func loadBackfillsTopLevelAndSubKeysTogether() throws {
+    let (directory, configPath, cleanup) = makeTempConfigDir()
+    defer { cleanup() }
+
+    try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+
+    let partialJSON = """
+    {
+      "mcpServers": {},
+      "allowedCliTools": [],
+      "bodyLimitMiB": 4,
+      "excludedFilePatterns": [],
+      "autoApprovePermissions": true,
+      "maxAgentLoopIterations": 20,
+      "contextRecencyWindow": 3,
+      "modelsCacheTTLSeconds": 600,
+      "timeouts": {
+        "requestTimeoutSeconds": 300,
+        "streamingEndpointTimeoutSeconds": 300
+      }
+    }
+    """
+    try partialJSON.write(toFile: configPath, atomically: true, encoding: .utf8)
+
+    let logger = MockLogger()
+    let loader = ConfigurationLoader(
+        logger: logger,
+        defaultConfigDirectory: directory,
+        defaultConfigPath: configPath,
+        interactive: false
+    )
+
+    _ = try loader.load(from: nil)
+
+    let updatedData = try Data(contentsOf: URL(fileURLWithPath: configPath))
+    let updatedJSON = try JSONSerialization.jsonObject(with: updatedData) as? [String: Any]
+    let timeouts = updatedJSON?["timeouts"] as? [String: Any]
+
+    #expect(updatedJSON?["reasoningEffort"] != nil)
+    #expect(timeouts?["httpClientTimeoutSeconds"] != nil)
+    #expect(logger.infoMessages.contains { message in
+        message.contains("Backfilled missing config keys") &&
+        message.contains("reasoningEffort") &&
+        message.contains("timeouts.httpClientTimeoutSeconds")
+    })
+}
+
+@Test func loadBackfillsMissingSubKeysInMcpServerDefaultEntry() throws {
+    let (directory, configPath, cleanup) = makeTempConfigDir()
+    defer { cleanup() }
+
+    try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+
+    let partialJSON = """
+    {
+      "mcpServers": {
+        "xcode": {
+          "type": "local",
+          "command": "xcrun"
+        }
+      },
+      "allowedCliTools": [],
+      "bodyLimitMiB": 4,
+      "excludedFilePatterns": [],
+      "autoApprovePermissions": true,
+      "reasoningEffort": "high",
+      "maxAgentLoopIterations": 20,
+      "contextRecencyWindow": 3,
+      "modelsCacheTTLSeconds": 600,
+      "timeouts": {
+        "requestTimeoutSeconds": 300,
+        "streamingEndpointTimeoutSeconds": 300,
+        "httpClientTimeoutSeconds": 300
+      }
+    }
+    """
+    try partialJSON.write(toFile: configPath, atomically: true, encoding: .utf8)
+
+    let logger = MockLogger()
+    let prompter = MockConsolePrompter(answer: true)
+    let loader = ConfigurationLoader(
+        logger: logger,
+        defaultConfigDirectory: directory,
+        defaultConfigPath: configPath,
+        prompter: prompter
+    )
+
+    _ = try loader.load(from: nil)
+
+    let updatedData = try Data(contentsOf: URL(fileURLWithPath: configPath))
+    let updatedJSON = try JSONSerialization.jsonObject(with: updatedData) as? [String: Any]
+    let mcpServers = updatedJSON?["mcpServers"] as? [String: Any]
+    let xcodeServer = mcpServers?["xcode"] as? [String: Any]
+
+    #expect(xcodeServer?["args"] != nil)
+    #expect(xcodeServer?["allowedTools"] != nil)
+    #expect(xcodeServer?["timeoutSeconds"] != nil)
+    #expect(logger.infoMessages.contains { $0.contains("mcpServers.xcode") })
+    #expect(prompter.prompts.count == 1)
+    #expect(prompter.prompts.first?.contains("missing configuration keys") == true)
+}
+
+@Test func backfillEmptyMcpServersUserAccepts() throws {
+    let (directory, configPath, cleanup) = makeTempConfigDir()
+    defer { cleanup() }
+
+    try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+
+    let partialJSON = """
+    {
+      "mcpServers": {},
+      "allowedCliTools": [],
+      "bodyLimitMiB": 4,
+      "excludedFilePatterns": [],
+      "autoApprovePermissions": true,
+      "reasoningEffort": "high",
+      "maxAgentLoopIterations": 20,
+      "contextRecencyWindow": 3,
+      "modelsCacheTTLSeconds": 600,
+      "timeouts": {
+        "requestTimeoutSeconds": 300,
+        "streamingEndpointTimeoutSeconds": 300,
+        "httpClientTimeoutSeconds": 300
+      }
+    }
+    """
+    try partialJSON.write(toFile: configPath, atomically: true, encoding: .utf8)
+
+    let logger = MockLogger()
+    let prompter = MockConsolePrompter(answer: true)
+    let loader = ConfigurationLoader(
+        logger: logger,
+        defaultConfigDirectory: directory,
+        defaultConfigPath: configPath,
+        prompter: prompter
+    )
+
+    _ = try loader.load(from: nil)
+
+    let updatedData = try Data(contentsOf: URL(fileURLWithPath: configPath))
+    let updatedJSON = try JSONSerialization.jsonObject(with: updatedData) as? [String: Any]
+    let mcpServers = updatedJSON?["mcpServers"] as? [String: Any]
+    let xcodeServer = mcpServers?["xcode"] as? [String: Any]
+
+    #expect(xcodeServer != nil)
+    #expect(xcodeServer?["command"] as? String == "xcrun")
+    #expect(prompter.prompts.count == 1)
+    #expect(prompter.prompts.first?.contains("empty") == true)
+    #expect(logger.infoMessages.contains { $0.contains("mcpServers.xcode") })
+}
+
+@Test func backfillEmptyMcpServersUserDeclines() throws {
+    let (directory, configPath, cleanup) = makeTempConfigDir()
+    defer { cleanup() }
+
+    try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+
+    let partialJSON = """
+    {
+      "mcpServers": {},
+      "allowedCliTools": [],
+      "bodyLimitMiB": 4,
+      "excludedFilePatterns": [],
+      "autoApprovePermissions": true,
+      "maxAgentLoopIterations": 20,
+      "contextRecencyWindow": 3,
+      "modelsCacheTTLSeconds": 600,
+      "timeouts": {
+        "requestTimeoutSeconds": 300,
+        "streamingEndpointTimeoutSeconds": 300,
+        "httpClientTimeoutSeconds": 300
+      }
+    }
+    """
+    try partialJSON.write(toFile: configPath, atomically: true, encoding: .utf8)
+
+    let logger = MockLogger()
+    let prompter = MockConsolePrompter(answer: false)
+    let loader = ConfigurationLoader(
+        logger: logger,
+        defaultConfigDirectory: directory,
+        defaultConfigPath: configPath,
+        prompter: prompter
+    )
+
+    _ = try loader.load(from: nil)
+
+    let updatedData = try Data(contentsOf: URL(fileURLWithPath: configPath))
+    let updatedJSON = try JSONSerialization.jsonObject(with: updatedData) as? [String: Any]
+    let mcpServers = updatedJSON?["mcpServers"] as? [String: Any]
+
+    #expect(mcpServers?.isEmpty == true)
+    #expect(prompter.prompts.count == 1)
+    #expect(logger.infoMessages.contains { $0.contains("Skipped MCP server backfill") })
+    #expect(logger.infoMessages.contains { $0.contains("Backfilled missing config keys") && $0.contains("reasoningEffort") })
+}
+
+@Test func backfillMcpSubKeysUserDeclines() throws {
+    let (directory, configPath, cleanup) = makeTempConfigDir()
+    defer { cleanup() }
+
+    try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+
+    let partialJSON = """
+    {
+      "mcpServers": {
+        "xcode": {
+          "type": "local",
+          "command": "xcrun"
+        }
+      },
+      "allowedCliTools": [],
+      "bodyLimitMiB": 4,
+      "excludedFilePatterns": [],
+      "autoApprovePermissions": true,
+      "reasoningEffort": "high",
+      "maxAgentLoopIterations": 20,
+      "contextRecencyWindow": 3,
+      "modelsCacheTTLSeconds": 600,
+      "timeouts": {
+        "requestTimeoutSeconds": 300,
+        "streamingEndpointTimeoutSeconds": 300,
+        "httpClientTimeoutSeconds": 300
+      }
+    }
+    """
+    try partialJSON.write(toFile: configPath, atomically: true, encoding: .utf8)
+
+    let logger = MockLogger()
+    let prompter = MockConsolePrompter(answer: false)
+    let loader = ConfigurationLoader(
+        logger: logger,
+        defaultConfigDirectory: directory,
+        defaultConfigPath: configPath,
+        prompter: prompter
+    )
+
+    _ = try loader.load(from: nil)
+
+    let updatedData = try Data(contentsOf: URL(fileURLWithPath: configPath))
+    let updatedJSON = try JSONSerialization.jsonObject(with: updatedData) as? [String: Any]
+    let mcpServers = updatedJSON?["mcpServers"] as? [String: Any]
+    let xcodeServer = mcpServers?["xcode"] as? [String: Any]
+
+    #expect(xcodeServer?["args"] == nil)
+    #expect(xcodeServer?["allowedTools"] == nil)
+    #expect(xcodeServer?["timeoutSeconds"] == nil)
+    #expect(xcodeServer?["type"] as? String == "local")
+    #expect(xcodeServer?["command"] as? String == "xcrun")
+    #expect(prompter.prompts.count == 1)
+    #expect(logger.infoMessages.contains { $0.contains("Skipped MCP server backfill") })
+}
+
+@Test func backfillNonInteractiveModeSkipsMcpPrompt() throws {
+    let (directory, configPath, cleanup) = makeTempConfigDir()
+    defer { cleanup() }
+
+    try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+
+    let partialJSON = """
+    {
+      "mcpServers": {},
+      "allowedCliTools": [],
+      "bodyLimitMiB": 4,
+      "excludedFilePatterns": [],
+      "autoApprovePermissions": true,
+      "maxAgentLoopIterations": 20,
+      "contextRecencyWindow": 3,
+      "modelsCacheTTLSeconds": 600,
+      "timeouts": {
+        "requestTimeoutSeconds": 300,
+        "streamingEndpointTimeoutSeconds": 300,
+        "httpClientTimeoutSeconds": 300
+      }
+    }
+    """
+    try partialJSON.write(toFile: configPath, atomically: true, encoding: .utf8)
+
+    let logger = MockLogger()
+    let prompter = MockConsolePrompter(answer: true)
+    let loader = ConfigurationLoader(
+        logger: logger,
+        defaultConfigDirectory: directory,
+        defaultConfigPath: configPath,
+        interactive: false,
+        prompter: prompter
+    )
+
+    _ = try loader.load(from: nil)
+
+    let updatedData = try Data(contentsOf: URL(fileURLWithPath: configPath))
+    let updatedJSON = try JSONSerialization.jsonObject(with: updatedData) as? [String: Any]
+    let mcpServers = updatedJSON?["mcpServers"] as? [String: Any]
+
+    #expect(mcpServers?.isEmpty == true)
+    #expect(prompter.prompts.isEmpty)
+    #expect(logger.infoMessages.contains { $0.contains("Skipped MCP server backfill") })
+    #expect(logger.infoMessages.contains { $0.contains("Backfilled missing config keys") && $0.contains("reasoningEffort") })
 }

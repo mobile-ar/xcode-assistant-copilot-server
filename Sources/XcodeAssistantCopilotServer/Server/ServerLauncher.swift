@@ -87,17 +87,18 @@ public struct ServerLauncher: Sendable {
     }
 
     private func loadConfiguration(logger: LoggerProtocol) async throws -> ConfigurationContext {
-        let loader = ConfigurationLoader(logger: logger)
+        let interactiveLoader = ConfigurationLoader(logger: logger, interactive: true)
         let configuration: ServerConfiguration
         do {
-            configuration = try loader.load(from: configPath)
+            configuration = try interactiveLoader.load(from: configPath)
         } catch {
             logger.error("Failed to load configuration: \(error)")
             throw ServerLaunchError.configurationLoadFailed
         }
         let store = ConfigurationStore(initial: configuration)
         let watchPath = configPath ?? ConfigurationLoader.productionConfigPath
-        let watcher = ConfigurationWatcher(path: watchPath, loader: loader, logger: logger)
+        let watcherLoader = ConfigurationLoader(logger: logger, interactive: false)
+        let watcher = ConfigurationWatcher(path: watchPath, loader: watcherLoader, logger: logger)
         await watcher.start()
         return ConfigurationContext(store: store, watcher: watcher)
     }
