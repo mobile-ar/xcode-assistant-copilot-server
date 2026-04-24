@@ -15,7 +15,7 @@ struct AgentStreamingChatCompletionTests {
         let strategy = makeStrategy(bridgeHolder: holder)
         let request = makeRequest()
 
-        let response = await strategy.streamResponse(
+        let response = try await strategy.streamResponse(
             request: request,
             credentials: testCredentials,
             configuration: testConfiguration
@@ -32,7 +32,7 @@ struct AgentStreamingChatCompletionTests {
         let strategy = makeStrategy(bridgeHolder: holder)
         let request = makeRequest()
 
-        let response = await strategy.streamResponse(
+        let response = try await strategy.streamResponse(
             request: request,
             credentials: testCredentials,
             configuration: testConfiguration
@@ -50,7 +50,7 @@ struct AgentStreamingChatCompletionTests {
         let strategy = makeStrategy(bridgeHolder: holder, agentLoopService: mockAgentLoopService)
         let request = makeRequest(model: "gpt-4o")
 
-        let response = await strategy.streamResponse(
+        let response = try await strategy.streamResponse(
             request: request,
             credentials: testCredentials,
             configuration: testConfiguration
@@ -67,7 +67,7 @@ struct AgentStreamingChatCompletionTests {
         let strategy = makeStrategy(bridgeHolder: holder)
         let request = makeRequest()
 
-        let response = await strategy.streamResponse(
+        let response = try await strategy.streamResponse(
             request: request,
             credentials: testCredentials,
             configuration: testConfiguration

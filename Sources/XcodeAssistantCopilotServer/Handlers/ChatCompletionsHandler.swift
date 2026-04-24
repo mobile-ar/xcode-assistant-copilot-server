@@ -56,12 +56,18 @@ struct ChatCompletionsHandler: Sendable {
                     return ErrorResponseBuilder.build(status: .unauthorized, type: "api_error", message: "Authentication failed: \(error)")
                 }
 
-                let strategy = await self.resolveStrategy()
-                return await strategy.streamResponse(request: completionRequest, credentials: credentials, configuration: configuration)
+                return try await self.streamWithRetry(completionRequest: completionRequest, credentials: credentials, configuration: configuration)
             }
         } catch is CancellationError {
             logger.info("Request cancelled — user stopped the request from Xcode.")
             throw CancellationError()
+        }
+    }
+
+    private func streamWithRetry(completionRequest: ChatCompletionRequest, credentials: CopilotCredentials, configuration: ServerConfiguration) async throws -> Response {
+        let strategy = await resolveStrategy()
+        return try await authService.retryingOnUnauthorized(credentials: credentials) { retryCredentials in
+            try await strategy.streamResponse(request: completionRequest, credentials: retryCredentials, configuration: configuration)
         }
     }
 

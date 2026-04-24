@@ -62,6 +62,7 @@ public struct CopilotServer: Sendable {
             logger: logger
         )
         let agentLoopService = AgentLoopService(
+            authService: authService,
             copilotAPI: copilotAPI,
             mcpToolExecutor: mcpToolExecutor,
             modelEndpointResolver: modelEndpointResolver,

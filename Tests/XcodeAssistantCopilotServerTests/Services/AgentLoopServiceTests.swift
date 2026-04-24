@@ -27,6 +27,7 @@ private func makeRequest(model: String = "gpt-4") -> ChatCompletionRequest {
 }
 
 private func makeService(
+    authService: AuthServiceProtocol = MockAuthService(),
     copilotAPI: CopilotAPIServiceProtocol = MockCopilotAPIService(),
     mcpToolExecutor: MCPToolExecutorProtocol = MockMCPToolExecutor(),
     modelEndpointResolver: ModelEndpointResolverProtocol = MockModelEndpointResolver(),
@@ -35,6 +36,7 @@ private func makeService(
     logger: LoggerProtocol = MockLogger()
 ) -> AgentLoopService {
     AgentLoopService(
+        authService: authService,
         copilotAPI: copilotAPI,
         mcpToolExecutor: mcpToolExecutor,
         modelEndpointResolver: modelEndpointResolver,
@@ -511,5 +513,58 @@ struct AgentLoopServiceTests {
         #expect(copilotAPI.streamChatCompletionsCallCount == 2)
         #expect(logger.errorMessages.contains { $0.contains(detailedErrorBody) })
         #expect(copilotAPI.capturedChatRequests[1].reasoningEffort == .medium)
+    }
+
+    @Test func retriesOnUnauthorizedWithFreshCredentials() async {
+        let authService = MockAuthService()
+        authService.credentials = CopilotCredentials(token: "fresh-token", apiEndpoint: "https://api.github.com")
+
+        let copilotAPI = MockCopilotAPIService()
+        copilotAPI.streamChatCompletionsResults = [
+            .failure(CopilotAPIError.unauthorized),
+            .success(MockCopilotAPIService.makeContentStream(content: "Success after retry"))
+        ]
+
+        let service = makeService(authService: authService, copilotAPI: copilotAPI)
+        let writer = MockAgentStreamWriter()
+
+        await service.runAgentLoop(
+            request: makeRequest(),
+            credentials: CopilotCredentials(token: "stale-token", apiEndpoint: "https://api.github.com"),
+            allTools: [],
+            mcpToolServerMap: [:],
+            writer: writer
+        )
+
+        #expect(authService.invalidateCallCount == 1)
+        #expect(copilotAPI.streamChatCompletionsCallCount == 2)
+        #expect(writer.finalContent != nil)
+        #expect(writer.finishCalled)
+    }
+
+    @Test func writesAuthErrorWhenRetryAlsoFails() async {
+        let authService = MockAuthService()
+        authService.credentials = CopilotCredentials(token: "also-stale", apiEndpoint: "https://api.github.com")
+
+        let copilotAPI = MockCopilotAPIService()
+        copilotAPI.streamChatCompletionsResults = [
+            .failure(CopilotAPIError.unauthorized),
+            .failure(CopilotAPIError.unauthorized)
+        ]
+
+        let service = makeService(authService: authService, copilotAPI: copilotAPI)
+        let writer = MockAgentStreamWriter()
+
+        await service.runAgentLoop(
+            request: makeRequest(),
+            credentials: CopilotCredentials(token: "stale-token", apiEndpoint: "https://api.github.com"),
+            allTools: [],
+            mcpToolServerMap: [:],
+            writer: writer
+        )
+
+        let combined = writer.allProgressText
+        #expect(combined.contains("Authentication failed"))
+        #expect(writer.finishCalled)
     }
 }

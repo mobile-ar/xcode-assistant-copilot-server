@@ -151,6 +151,93 @@ struct ChatCompletionsHandlerTests {
         #expect(receivedCredentials.token == "test-token-123")
         #expect(receivedCredentials.apiEndpoint == "https://test.api.github.com")
     }
+
+    @Test("Retries with fresh credentials when strategy throws unauthorized")
+    func handleRetriesOnUnauthorized() async throws {
+        let authService = MockAuthService()
+        authService.credentialsSequence = [
+            CopilotCredentials(token: "stale-token", apiEndpoint: "https://api.github.com"),
+            CopilotCredentials(token: "fresh-token", apiEndpoint: "https://api.github.com")
+        ]
+        let directStrategy = MockChatCompletion()
+        directStrategy.responseSequence = [
+            .failure(CopilotAPIError.unauthorized),
+            .success(Response(
+                status: .ok,
+                headers: [:],
+                body: .init(asyncSequence: AsyncStream<ByteBuffer> { $0.finish() })
+            ))
+        ]
+        let handler = makeHandler(
+            authService: authService,
+            bridgeHolder: MCPBridgeHolder(),
+            directStrategy: directStrategy
+        )
+        let app = makeTestApp(handler: handler)
+
+        try await app.test(.router) { client in
+            let response = try await client.execute(
+                uri: "/test",
+                method: .post,
+                body: try makeCompletionBody()
+            )
+            #expect(response.status == .ok)
+        }
+
+        #expect(directStrategy.streamCallCount == 2)
+        #expect(authService.invalidateCallCount == 1)
+    }
+
+    @Test("Returns error when retry also fails with unauthorized")
+    func handleFailsWhenRetryAlsoUnauthorized() async throws {
+        let authService = MockAuthService()
+        authService.credentialsSequence = [
+            CopilotCredentials(token: "stale-token", apiEndpoint: "https://api.github.com"),
+            CopilotCredentials(token: "also-stale-token", apiEndpoint: "https://api.github.com")
+        ]
+        let directStrategy = MockChatCompletion()
+        directStrategy.errorToThrow = CopilotAPIError.unauthorized
+        let handler = makeHandler(
+            authService: authService,
+            bridgeHolder: MCPBridgeHolder(),
+            directStrategy: directStrategy
+        )
+        let app = makeTestApp(handler: handler)
+
+        try await app.test(.router) { client in
+            let response = try await client.execute(
+                uri: "/test",
+                method: .post,
+                body: try makeCompletionBody()
+            )
+            #expect(response.status == .internalServerError)
+        }
+    }
+
+    @Test("Does not retry on non-unauthorized errors")
+    func handleDoesNotRetryOnOtherErrors() async throws {
+        let authService = MockAuthService()
+        let directStrategy = MockChatCompletion()
+        directStrategy.errorToThrow = CopilotAPIError.streamingFailed("connection lost")
+        let handler = makeHandler(
+            authService: authService,
+            bridgeHolder: MCPBridgeHolder(),
+            directStrategy: directStrategy
+        )
+        let app = makeTestApp(handler: handler)
+
+        try await app.test(.router) { client in
+            let response = try await client.execute(
+                uri: "/test",
+                method: .post,
+                body: try makeCompletionBody()
+            )
+            #expect(response.status == .internalServerError)
+        }
+
+        #expect(directStrategy.streamCallCount == 1)
+        #expect(authService.invalidateCallCount == 0)
+    }
 }
 
 private func makeHandler(

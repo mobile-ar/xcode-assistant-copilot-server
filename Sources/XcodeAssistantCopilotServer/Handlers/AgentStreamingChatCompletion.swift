@@ -13,7 +13,7 @@ struct AgentStreamingChatCompletion: ChatCompletionProtocol, Sendable {
         self.logger = logger
     }
 
-    func streamResponse(request: ChatCompletionRequest, credentials: CopilotCredentials, configuration: ServerConfiguration) async -> Response {
+    func streamResponse(request: ChatCompletionRequest, credentials: CopilotCredentials, configuration: ServerConfiguration) async throws -> Response {
         let completionId = ChatCompletionChunk.makeCompletionId()
         let model = request.model
 

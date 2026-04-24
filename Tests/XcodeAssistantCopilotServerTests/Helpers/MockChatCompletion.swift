@@ -13,6 +13,8 @@ final class MockChatCompletion: ChatCompletionProtocol, Sendable {
             headers: [:],
             body: .init(asyncSequence: AsyncStream<ByteBuffer> { $0.finish() })
         )
+        var responseSequence: [Result<Response, Error>] = []
+        var errorToThrow: Error?
     }
 
     private let state = Mutex(State())
@@ -26,11 +28,32 @@ final class MockChatCompletion: ChatCompletionProtocol, Sendable {
         set { state.withLock { $0.response = newValue } }
     }
 
-    func streamResponse(request: ChatCompletionRequest, credentials: CopilotCredentials, configuration: ServerConfiguration) async -> Response {
-        state.withLock {
+    var responseSequence: [Result<Response, Error>] {
+        get { state.withLock { $0.responseSequence } }
+        set { state.withLock { $0.responseSequence = newValue } }
+    }
+
+    var errorToThrow: Error? {
+        get { state.withLock { $0.errorToThrow } }
+        set { state.withLock { $0.errorToThrow = newValue } }
+    }
+
+    func streamResponse(request: ChatCompletionRequest, credentials: CopilotCredentials, configuration: ServerConfiguration) async throws -> Response {
+        let result: Result<Response, Error>? = state.withLock {
             $0.streamCallCount += 1
             $0.lastRequest = request
             $0.lastCredentials = credentials
+            let index = $0.streamCallCount - 1
+            if index < $0.responseSequence.count {
+                return $0.responseSequence[index]
+            }
+            if let error = $0.errorToThrow {
+                return .failure(error)
+            }
+            return nil
+        }
+        if let result {
+            return try result.get()
         }
         return state.withLock { $0.response }
     }

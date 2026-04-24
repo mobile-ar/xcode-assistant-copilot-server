@@ -11,6 +11,7 @@ protocol AgentLoopServiceProtocol: Sendable {
 }
 
 struct AgentLoopService: AgentLoopServiceProtocol, Sendable {
+    private let authService: AuthServiceProtocol
     private let copilotAPI: CopilotAPIServiceProtocol
     private let mcpToolExecutor: MCPToolExecutorProtocol
     private let modelEndpointResolver: ModelEndpointResolverProtocol
@@ -22,6 +23,7 @@ struct AgentLoopService: AgentLoopServiceProtocol, Sendable {
     private static let maxReasoningEffortRetries = 3
 
     init(
+        authService: AuthServiceProtocol,
         copilotAPI: CopilotAPIServiceProtocol,
         mcpToolExecutor: MCPToolExecutorProtocol,
         modelEndpointResolver: ModelEndpointResolverProtocol,
@@ -30,6 +32,7 @@ struct AgentLoopService: AgentLoopServiceProtocol, Sendable {
         configurationStore: ConfigurationStore,
         logger: LoggerProtocol
     ) {
+        self.authService = authService
         self.copilotAPI = copilotAPI
         self.mcpToolExecutor = mcpToolExecutor
         self.modelEndpointResolver = modelEndpointResolver
@@ -66,6 +69,7 @@ struct AgentLoopService: AgentLoopServiceProtocol, Sendable {
         configuration: ServerConfiguration
     ) async {
         let formatter = AgentProgressFormatter()
+        var currentCredentials = credentials
         let contextManager = ConversationContextManager(logger: logger)
         var messages = request.messages
         let model = request.model
@@ -75,7 +79,7 @@ struct AgentLoopService: AgentLoopServiceProtocol, Sendable {
         let preEncodedTools: Data? = preEncodeTools(allTools)
         let toolsTokenEstimate = contextManager.estimateTokenCount(tools: allTools)
 
-        let modelContextWindow = await modelEndpointResolver.contextWindowTokenLimit(for: model, credentials: credentials)
+        let modelContextWindow = await modelEndpointResolver.contextWindowTokenLimit(for: model, credentials: currentCredentials)
         let effectiveTokenLimit = modelContextWindow ?? 128_000
         if let modelContextWindow {
             logger.info("Using model-specific context window for '\(model)': \(modelContextWindow) tokens")
@@ -126,7 +130,23 @@ struct AgentLoopService: AgentLoopServiceProtocol, Sendable {
 
             let collectedResponse: CollectedResponse
             do {
-                collectedResponse = try await collectStreamedResponse(request: copilotRequest, credentials: credentials)
+                collectedResponse = try await collectStreamedResponse(request: copilotRequest, credentials: currentCredentials)
+            } catch CopilotAPIError.unauthorized {
+                logger.warn("Token expired at agent loop iteration \(iteration), refreshing credentials")
+                do {
+                    await authService.invalidateCachedToken()
+                    currentCredentials = try await authService.getValidCopilotToken()
+                    collectedResponse = try await collectStreamedResponse(request: copilotRequest, credentials: currentCredentials)
+                } catch is CancellationError {
+                    logger.debug("Agent loop cancelled during auth retry at iteration \(iteration)")
+                    writer.finish()
+                    return
+                } catch {
+                    logger.error("Auth retry failed at agent loop iteration \(iteration): \(error)")
+                    writer.writeProgressText("\n> **✗** Authentication failed: \(error)\n")
+                    writer.finish()
+                    return
+                }
             } catch is CancellationError {
                 logger.debug("Agent loop cancelled at iteration \(iteration)")
                 writer.finish()

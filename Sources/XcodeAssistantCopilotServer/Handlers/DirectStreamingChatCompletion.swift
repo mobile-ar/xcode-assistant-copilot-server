@@ -29,13 +29,15 @@ struct DirectStreamingChatCompletion: ChatCompletionProtocol, Sendable {
         self.eventNormalizer = eventNormalizer
     }
 
-    func streamResponse(request: ChatCompletionRequest, credentials: CopilotCredentials, configuration: ServerConfiguration) async -> Response {
+    func streamResponse(request: ChatCompletionRequest, credentials: CopilotCredentials, configuration: ServerConfiguration) async throws -> Response {
         let copilotRequest = buildCopilotRequest(from: request, configuration: configuration)
 
         let eventStream: AsyncThrowingStream<SSEEvent, Error>
         do {
             eventStream = try await streamForModel(copilotRequest: copilotRequest, credentials: credentials)
             logger.debug("Stream obtained successfully for model: \(copilotRequest.model)")
+        } catch CopilotAPIError.unauthorized {
+            throw CopilotAPIError.unauthorized
         } catch {
             logger.error("Copilot API streaming failed: \(error)")
             return ErrorResponseBuilder.build(status: .internalServerError, type: "api_error", message: "Failed to start streaming: \(error)")

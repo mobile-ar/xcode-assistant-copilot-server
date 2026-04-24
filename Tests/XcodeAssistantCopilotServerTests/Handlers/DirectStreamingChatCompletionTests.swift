@@ -16,7 +16,7 @@ struct DirectStreamingChatCompletionTests {
         ]
         let strategy = makeStrategy(copilotAPI: mockAPI)
 
-        let response = await strategy.streamResponse(
+        let response = try await strategy.streamResponse(
             request: makeRequest(),
             credentials: testCredentials,
             configuration: testConfiguration
@@ -32,7 +32,7 @@ struct DirectStreamingChatCompletionTests {
         ]
         let strategy = makeStrategy(copilotAPI: mockAPI)
 
-        let response = await strategy.streamResponse(
+        let response = try await strategy.streamResponse(
             request: makeRequest(),
             credentials: testCredentials,
             configuration: testConfiguration
@@ -48,7 +48,7 @@ struct DirectStreamingChatCompletionTests {
         ]
         let strategy = makeStrategy(copilotAPI: mockAPI)
 
-        let response = await strategy.streamResponse(
+        let response = try await strategy.streamResponse(
             request: makeRequest(),
             credentials: testCredentials,
             configuration: testConfiguration
@@ -64,7 +64,7 @@ struct DirectStreamingChatCompletionTests {
         ]
         let strategy = makeStrategy(copilotAPI: mockAPI)
 
-        let response = await strategy.streamResponse(
+        let response = try await strategy.streamResponse(
             request: makeRequest(),
             credentials: testCredentials,
             configuration: testConfiguration
@@ -81,7 +81,7 @@ struct DirectStreamingChatCompletionTests {
         ]
         let strategy = makeStrategy(copilotAPI: mockAPI)
 
-        let response = await strategy.streamResponse(
+        let response = try await strategy.streamResponse(
             request: makeRequest(),
             credentials: testCredentials,
             configuration: testConfiguration
@@ -99,6 +99,28 @@ struct DirectStreamingChatCompletionTests {
             let data = try #require(payload.data(using: .utf8))
             let json = try JSONSerialization.jsonObject(with: data)
             #expect(json is [String: Any])
+        }
+    }
+
+    @Test func streamResponseThrowsUnauthorized() async throws {
+        let mockAPI = MockCopilotAPIService()
+        mockAPI.streamChatCompletionsResults = [
+            .failure(CopilotAPIError.unauthorized)
+        ]
+        let strategy = makeStrategy(copilotAPI: mockAPI)
+
+        do {
+            _ = try await strategy.streamResponse(
+                request: makeRequest(),
+                credentials: testCredentials,
+                configuration: testConfiguration
+            )
+            Issue.record("Expected CopilotAPIError.unauthorized to be thrown")
+        } catch let error as CopilotAPIError {
+            guard case .unauthorized = error else {
+                Issue.record("Expected .unauthorized but got \(error)")
+                return
+            }
         }
     }
 
