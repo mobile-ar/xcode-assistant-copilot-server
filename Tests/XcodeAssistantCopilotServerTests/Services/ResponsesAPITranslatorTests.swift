@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Synchronization
 @testable import XcodeAssistantCopilotServer
 
 @Test func translateRequestConvertsUserMessage() throws {
@@ -1658,6 +1659,142 @@ import Foundation
     let hasDecodingWarning = logger.warnMessages.contains { $0.contains("failed to decode functionCallArgumentsDelta") }
     #expect(hasDecodingWarning)
     #expect(chunks.last?.choices.first?.finishReason == "tool_calls")
+}
+
+@Test func adaptStreamTerminatesWhenConsumerCancelsMidStream() async throws {
+    let translator = ResponsesAPITranslator(logger: MockLogger())
+
+    let events = AsyncThrowingStream<SSEEvent, Error> { continuation in
+        continuation.yield(SSEEvent(
+            data: "{\"delta\":\"Hello \"}",
+            event: "response.output_text.delta"
+        ))
+        continuation.yield(SSEEvent(
+            data: "{\"delta\":\"world\"}",
+            event: "response.output_text.delta"
+        ))
+        continuation.yield(SSEEvent(
+            data: "{\"delta\":\"!\"}",
+            event: "response.output_text.delta"
+        ))
+        // Source stream intentionally left open to simulate an ongoing response
+    }
+
+    let adapted = translator.adaptStream(
+        events: events,
+        completionId: "chatcmpl-cancel",
+        model: "gpt-5.1-codex"
+    )
+
+    let task = Task {
+        var collected: [SSEEvent] = []
+        for try await event in adapted {
+            if event.isDone { break }
+            collected.append(event)
+            if collected.count >= 2 {
+                break
+            }
+        }
+        return collected
+    }
+
+    let collected = try await task.value
+    #expect(collected.count == 2)
+
+    let firstData = collected[0].data
+    let decoded0 = try #require(firstData.data(using: .utf8))
+    let chunk0 = try JSONDecoder().decode(ChatCompletionChunk.self, from: decoded0)
+    #expect(chunk0.choices.first?.delta?.role == .assistant)
+
+    let secondData = collected[1].data
+    let decoded1 = try #require(secondData.data(using: .utf8))
+    let chunk1 = try JSONDecoder().decode(ChatCompletionChunk.self, from: decoded1)
+    #expect(chunk1.choices.first?.delta?.content == "Hello ")
+}
+
+@Test func adaptStreamCancellationDuringSlowSourceStopsAdaptedStream() async throws {
+    let translator = ResponsesAPITranslator(logger: MockLogger())
+
+    let events = AsyncThrowingStream<SSEEvent, Error> { continuation in
+        let innerTask = Task {
+            continuation.yield(SSEEvent(
+                data: "{\"delta\":\"first\"}",
+                event: "response.output_text.delta"
+            ))
+            do {
+                try await Task.sleep(for: .seconds(30))
+            } catch {
+                continuation.finish()
+                return
+            }
+            continuation.yield(SSEEvent(
+                data: "{\"delta\":\"should not arrive\"}",
+                event: "response.output_text.delta"
+            ))
+            continuation.finish()
+        }
+        continuation.onTermination = { _ in
+            innerTask.cancel()
+        }
+    }
+
+    let adapted = translator.adaptStream(
+        events: events,
+        completionId: "chatcmpl-slow",
+        model: "gpt-5.1-codex"
+    )
+
+    let consumerTask = Task {
+        var chunks: [String] = []
+        for try await event in adapted {
+            if event.isDone { break }
+            chunks.append(event.data)
+        }
+        return chunks
+    }
+
+    try await Task.sleep(for: .milliseconds(100))
+    consumerTask.cancel()
+
+    let chunks = try await consumerTask.value
+    #expect(!chunks.contains { $0.contains("should not arrive") })
+}
+
+@Test func adaptStreamCancellationAfterPartialToolCallTerminatesCleanly() async throws {
+    let translator = ResponsesAPITranslator(logger: MockLogger())
+
+    let events = AsyncThrowingStream<SSEEvent, Error> { continuation in
+        continuation.yield(SSEEvent(
+            data: "{\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_1\",\"name\":\"read_file\",\"status\":\"in_progress\"}}",
+            event: "response.output_item.added"
+        ))
+        continuation.yield(SSEEvent(
+            data: "{\"delta\":\"{\\\"path\\\":\",\"call_id\":\"call_1\",\"output_index\":0}",
+            event: "response.function_call_arguments.delta"
+        ))
+        // Stream hangs here — no more events arrive (simulates Xcode stopping)
+    }
+
+    let adapted = translator.adaptStream(
+        events: events,
+        completionId: "chatcmpl-toolcancel",
+        model: "gpt-5.1-codex"
+    )
+
+    let consumerTask = Task {
+        var count = 0
+        for try await event in adapted {
+            if event.isDone { break }
+            count += 1
+            if count >= 3 {
+                break
+            }
+        }
+        return count
+    }
+
+    let count = try await consumerTask.value
+    #expect(count >= 3)
 }
 
 @Test func adaptStreamResponseTerminatedLogsEventTypeAndData() async throws {
