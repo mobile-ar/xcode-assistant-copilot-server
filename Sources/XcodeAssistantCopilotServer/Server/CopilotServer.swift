@@ -48,13 +48,40 @@ public struct CopilotServer: Sendable {
         let modelEndpointResolver = ModelEndpointResolver(copilotAPI: copilotAPI, logger: logger)
         let reasoningEffortResolver = ReasoningEffortResolver()
 
-        let completionsHandler = ChatCompletionsHandler(
-            authService: authService,
+        let directStrategy = DirectStreamingChatCompletion(
             copilotAPI: copilotAPI,
-            bridgeHolder: bridgeHolder,
             modelEndpointResolver: modelEndpointResolver,
             reasoningEffortResolver: reasoningEffortResolver,
+            responsesTranslator: ResponsesAPITranslator(logger: logger),
+            logger: logger
+        )
+
+        let mcpToolExecutor = MCPToolExecutor(
+            bridgeHolder: bridgeHolder,
             configurationStore: configurationStore,
+            logger: logger
+        )
+        let agentLoopService = AgentLoopService(
+            copilotAPI: copilotAPI,
+            mcpToolExecutor: mcpToolExecutor,
+            modelEndpointResolver: modelEndpointResolver,
+            reasoningEffortResolver: reasoningEffortResolver,
+            responsesTranslator: ResponsesAPITranslator(logger: logger),
+            configurationStore: configurationStore,
+            logger: logger
+        )
+        let agentStrategy = AgentStreamingChatCompletion(
+            bridgeHolder: bridgeHolder,
+            agentLoopService: agentLoopService,
+            logger: logger
+        )
+
+        let completionsHandler = ChatCompletionsHandler(
+            authService: authService,
+            configurationStore: configurationStore,
+            bridgeHolder: bridgeHolder,
+            directStrategy: directStrategy,
+            agentStrategy: agentStrategy,
             logger: logger
         )
 
