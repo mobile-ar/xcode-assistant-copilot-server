@@ -6,6 +6,7 @@ final class MockModelEndpointResolver: ModelEndpointResolverProtocol, Sendable {
         var endpoint: ModelEndpoint = .chatCompletions
         var contextWindow: Int?
         var resolvedModels: [String] = []
+        var reasoningSupport: [String: Bool] = [:]
     }
 
     private let mutex = Mutex(State())
@@ -26,10 +27,24 @@ final class MockModelEndpointResolver: ModelEndpointResolverProtocol, Sendable {
 
     var resolvedModels: [String] { mutex.withLock { $0.resolvedModels } }
 
+    var reasoningSupportByModel: [String: Bool] {
+        get { mutex.withLock { $0.reasoningSupport } }
+        set { mutex.withLock { $0.reasoningSupport = newValue } }
+    }
+
     func endpoint(for modelId: String, credentials: CopilotCredentials) async -> ModelEndpoint {
         mutex.withLock {
             $0.resolvedModels.append(modelId)
             return $0.endpoint
+        }
+    }
+
+    func supportsReasoningEffort(for modelId: String, credentials: CopilotCredentials) async -> Bool {
+        mutex.withLock {
+            if let supported = $0.reasoningSupport[modelId], !supported {
+                return false
+            }
+            return true
         }
     }
 }

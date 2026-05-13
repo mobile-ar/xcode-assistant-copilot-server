@@ -266,6 +266,67 @@ struct DirectStreamingChatCompletionTests {
         #expect(reasoningResolver.recordedMaxEfforts[0].modelId == "gpt-4o")
     }
 
+    @Test func reasoningEffortStrippedWhenModelDoesNotSupportIt() async throws {
+        let mockAPI = MockCopilotAPIService()
+        mockAPI.streamChatCompletionsResults = [
+            .success(MockCopilotAPIService.makeContentStream(content: "ok"))
+        ]
+        let endpointResolver = MockModelEndpointResolver()
+        endpointResolver.reasoningSupportByModel = ["claude-sonnet-4.5": false]
+        let strategy = makeStrategy(copilotAPI: mockAPI, modelEndpointResolver: endpointResolver)
+
+        let response = try await strategy.streamResponse(
+            request: makeRequest(model: "claude-sonnet-4.5"),
+            credentials: testCredentials,
+            configuration: ServerConfiguration(reasoningEffort: .xhigh)
+        )
+
+        #expect(response.status == .ok)
+        #expect(mockAPI.streamChatCompletionsCallCount == 1)
+        #expect(mockAPI.capturedChatRequests[0].reasoningEffort == nil)
+    }
+
+    @Test func reasoningEffortImmediatelyRemovedOnUnsupportedError() async throws {
+        let mockAPI = MockCopilotAPIService()
+        mockAPI.streamChatCompletionsResults = [
+            .failure(CopilotAPIError.requestFailed(statusCode: 400, body: "{\"error\":{\"message\":\"model does not support reasoning effort\",\"code\":\"invalid_reasoning_effort\"}}")),
+            .success(MockCopilotAPIService.makeContentStream(content: "ok"))
+        ]
+        let reasoningResolver = MockReasoningEffortResolver()
+        let strategy = makeStrategy(copilotAPI: mockAPI, reasoningEffortResolver: reasoningResolver)
+
+        let response = try await strategy.streamResponse(
+            request: makeRequest(),
+            credentials: testCredentials,
+            configuration: ServerConfiguration(reasoningEffort: .xhigh)
+        )
+
+        #expect(response.status == .ok)
+        #expect(mockAPI.streamChatCompletionsCallCount == 2)
+        #expect(mockAPI.capturedChatRequests[1].reasoningEffort == nil)
+        #expect(reasoningResolver.recordedUnsupportedModels.contains("gpt-4o"))
+        #expect(reasoningResolver.recordedMaxEfforts.isEmpty)
+    }
+
+    @Test func reasoningEffortPreservedWhenModelSupportsIt() async throws {
+        let mockAPI = MockCopilotAPIService()
+        mockAPI.streamChatCompletionsResults = [
+            .success(MockCopilotAPIService.makeContentStream(content: "ok"))
+        ]
+        let endpointResolver = MockModelEndpointResolver()
+        endpointResolver.reasoningSupportByModel = ["gpt-4o": true]
+        let strategy = makeStrategy(copilotAPI: mockAPI, modelEndpointResolver: endpointResolver)
+
+        let response = try await strategy.streamResponse(
+            request: makeRequest(),
+            credentials: testCredentials,
+            configuration: ServerConfiguration(reasoningEffort: .high)
+        )
+
+        #expect(response.status == .ok)
+        #expect(mockAPI.capturedChatRequests[0].reasoningEffort == .high)
+    }
+
     private func makeStrategy(
         copilotAPI: CopilotAPIServiceProtocol = MockCopilotAPIService(),
         modelEndpointResolver: ModelEndpointResolverProtocol = MockModelEndpointResolver(),

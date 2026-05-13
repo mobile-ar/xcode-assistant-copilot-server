@@ -232,3 +232,91 @@ private let testCredentials = CopilotCredentials(
     let endpoint = await resolver.endpoint(for: "gpt-5.1-codex-max", credentials: testCredentials)
     #expect(endpoint == .responses)
 }
+
+@Test func resolverReturnsTrueForReasoningEffortSupportedModel() async {
+    let models = [
+        CopilotModel(
+            id: "o3-mini",
+            capabilities: CopilotModelCapabilities(
+                supports: CopilotModelSupports(reasoningEffort: true)
+            ),
+            supportedEndpoints: ["/chat/completions"]
+        )
+    ]
+    let mockAPI = LocalMockCopilotAPIService(models: models)
+    let logger = MockLogger()
+    let resolver = ModelEndpointResolver(copilotAPI: mockAPI, logger: logger)
+
+    let result = await resolver.supportsReasoningEffort(for: "o3-mini", credentials: testCredentials)
+    #expect(result == true)
+}
+
+@Test func resolverReturnsFalseForReasoningEffortUnsupportedModel() async {
+    let models = [
+        CopilotModel(
+            id: "gpt-4o",
+            capabilities: CopilotModelCapabilities(
+                supports: CopilotModelSupports(reasoningEffort: false)
+            ),
+            supportedEndpoints: ["/chat/completions"]
+        )
+    ]
+    let mockAPI = LocalMockCopilotAPIService(models: models)
+    let logger = MockLogger()
+    let resolver = ModelEndpointResolver(copilotAPI: mockAPI, logger: logger)
+
+    let result = await resolver.supportsReasoningEffort(for: "gpt-4o", credentials: testCredentials)
+    #expect(result == false)
+}
+
+@Test func resolverReturnsTrueWhenReasoningEffortNotSpecified() async {
+    let models = [
+        CopilotModel(
+            id: "gpt-3.5-turbo",
+            supportedEndpoints: ["/chat/completions"]
+        )
+    ]
+    let mockAPI = LocalMockCopilotAPIService(models: models)
+    let logger = MockLogger()
+    let resolver = ModelEndpointResolver(copilotAPI: mockAPI, logger: logger)
+
+    let result = await resolver.supportsReasoningEffort(for: "gpt-3.5-turbo", credentials: testCredentials)
+    #expect(result == true)
+}
+
+@Test func resolverReturnsTrueForUnknownModel() async {
+    let mockAPI = LocalMockCopilotAPIService(models: [])
+    let logger = MockLogger()
+    let resolver = ModelEndpointResolver(copilotAPI: mockAPI, logger: logger)
+
+    let result = await resolver.supportsReasoningEffort(for: "unknown-model", credentials: testCredentials)
+    #expect(result == true)
+}
+
+@Test func resolverReasoningEffortSupportCachedPerModel() async {
+    let models = [
+        CopilotModel(
+            id: "o3-mini",
+            capabilities: CopilotModelCapabilities(
+                supports: CopilotModelSupports(reasoningEffort: true)
+            ),
+            supportedEndpoints: ["/chat/completions"]
+        ),
+        CopilotModel(
+            id: "gpt-4o",
+            capabilities: CopilotModelCapabilities(
+                supports: CopilotModelSupports(reasoningEffort: false)
+            ),
+            supportedEndpoints: ["/chat/completions"]
+        )
+    ]
+    let mockAPI = LocalMockCopilotAPIService(models: models)
+    let logger = MockLogger()
+    let resolver = ModelEndpointResolver(copilotAPI: mockAPI, logger: logger)
+
+    let supportsReasoning = await resolver.supportsReasoningEffort(for: "o3-mini", credentials: testCredentials)
+    #expect(supportsReasoning == true)
+
+    let doesNotSupportReasoning = await resolver.supportsReasoningEffort(for: "gpt-4o", credentials: testCredentials)
+    #expect(doesNotSupportReasoning == false)
+}

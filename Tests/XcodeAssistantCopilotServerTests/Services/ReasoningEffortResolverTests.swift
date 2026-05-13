@@ -75,3 +75,36 @@ import Testing
         #expect(result == maxEffort)
     }
 }
+
+@Test func resolverReturnsNilForUnsupportedModel() async {
+    let resolver = ReasoningEffortResolver()
+    await resolver.recordUnsupported(for: "claude-sonnet-4.5")
+    let result = await resolver.resolve(configured: .xhigh, for: "claude-sonnet-4.5")
+    #expect(result == nil)
+}
+
+@Test func resolverReturnsEffortForOtherModelsWhenOneIsUnsupported() async {
+    let resolver = ReasoningEffortResolver()
+    await resolver.recordUnsupported(for: "claude-sonnet-4.5")
+
+    let result1 = await resolver.resolve(configured: .xhigh, for: "gpt-4o")
+    #expect(result1 == .xhigh)
+
+    let result2 = await resolver.resolve(configured: .xhigh, for: "claude-sonnet-4.5")
+    #expect(result2 == nil)
+}
+
+@Test func resolverUnsupportedTakesPrecedenceOverMaxEffort() async {
+    let resolver = ReasoningEffortResolver()
+    await resolver.recordMaxEffort(.high, for: "gpt-5.1-codex")
+    await resolver.recordUnsupported(for: "gpt-5.1-codex")
+    let result = await resolver.resolve(configured: .xhigh, for: "gpt-5.1-codex")
+    #expect(result == nil)
+}
+
+@Test func resolverUnsupportedDoesNotAffectOtherModels() async {
+    let resolver = ReasoningEffortResolver()
+    await resolver.recordUnsupported(for: "claude-sonnet-4.5")
+    let result = await resolver.resolve(configured: .xhigh, for: "gpt-4o")
+    #expect(result == .xhigh)
+}

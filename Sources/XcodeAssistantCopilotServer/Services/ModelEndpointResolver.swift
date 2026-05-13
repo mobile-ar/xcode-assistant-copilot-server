@@ -8,6 +8,7 @@ public enum ModelEndpoint: Sendable, Equatable {
 public protocol ModelEndpointResolverProtocol: Sendable {
     func endpoint(for modelId: String, credentials: CopilotCredentials) async -> ModelEndpoint
     func contextWindowTokenLimit(for modelId: String, credentials: CopilotCredentials) async -> Int?
+    func supportsReasoningEffort(for modelId: String, credentials: CopilotCredentials) async -> Bool
 }
 
 public actor ModelEndpointResolver: ModelEndpointResolverProtocol {
@@ -15,6 +16,7 @@ public actor ModelEndpointResolver: ModelEndpointResolverProtocol {
     private let logger: LoggerProtocol
     private var cachedEndpoints: [String: [String]]?
     private var cachedContextWindows: [String: Int]?
+    private var cachedReasoningSupport: [String: Bool]?
     private var lastFetchTime: Date?
     private static let cacheDuration: TimeInterval = 300
 
@@ -57,6 +59,18 @@ public actor ModelEndpointResolver: ModelEndpointResolverProtocol {
         return tokenLimit
     }
 
+    public func supportsReasoningEffort(for modelId: String, credentials: CopilotCredentials) async -> Bool {
+        await refreshCacheIfNeeded(credentials: credentials)
+
+        guard let supported = cachedReasoningSupport?[modelId] else {
+            logger.info("No reasoning effort support info for model '\(modelId)', assuming supported")
+            return true
+        }
+
+        logger.info("Reasoning effort support for '\(modelId)': \(supported)")
+        return supported
+    }
+
     private func refreshCacheIfNeeded(credentials: CopilotCredentials) async {
         if let lastFetch = lastFetchTime,
            Date.now.timeIntervalSince(lastFetch) < Self.cacheDuration,
@@ -68,6 +82,7 @@ public actor ModelEndpointResolver: ModelEndpointResolverProtocol {
             let models = try await copilotAPI.listModels(credentials: credentials)
             var mapping: [String: [String]] = [:]
             var contextWindows: [String: Int] = [:]
+            var reasoningSupport: [String: Bool] = [:]
             for model in models {
                 if let supported = model.supportedEndpoints {
                     mapping[model.id] = supported
@@ -75,9 +90,13 @@ public actor ModelEndpointResolver: ModelEndpointResolverProtocol {
                 if let maxTokens = model.capabilities?.limits?.maxContextWindowTokens {
                     contextWindows[model.id] = maxTokens
                 }
+                if let supports = model.capabilities?.supports?.reasoningEffort {
+                    reasoningSupport[model.id] = supports
+                }
             }
             cachedEndpoints = mapping
             cachedContextWindows = contextWindows
+            cachedReasoningSupport = reasoningSupport
             lastFetchTime = .now
             logger.debug("Refreshed model endpoint cache with \(models.count) model(s)")
         } catch {

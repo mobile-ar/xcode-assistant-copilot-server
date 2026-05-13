@@ -112,7 +112,7 @@ struct DirectStreamingChatCompletion: ChatCompletionProtocol, Sendable {
     }
 
     private func streamForModel(copilotRequest: CopilotChatRequest, credentials: CopilotCredentials) async throws -> AsyncThrowingStream<SSEEvent, Error> {
-        var currentRequest = await resolveReasoningEffort(for: copilotRequest)
+        var currentRequest = await resolveReasoningEffort(for: copilotRequest, credentials: credentials)
 
         for attempt in 0..<Self.maxReasoningEffortRetries {
             do {
@@ -125,6 +125,13 @@ struct DirectStreamingChatCompletion: ChatCompletionProtocol, Sendable {
 
                 let currentEffort = currentRequest.reasoningEffort!
                 logger.error("HTTP 400 with reasoning effort '\(currentEffort.rawValue)' for model '\(currentRequest.model)' (attempt \(attempt + 1)/\(Self.maxReasoningEffortRetries)). Error body: \(body)")
+
+                if isReasoningUnsupportedError(body) {
+                    logger.info("Model '\(currentRequest.model)' does not support reasoning effort, removing it")
+                    await reasoningEffortResolver.recordUnsupported(for: currentRequest.model)
+                    currentRequest = currentRequest.withReasoningEffort(nil)
+                    continue
+                }
 
                 guard let lowerEffort = currentEffort.nextLower else {
                     logger.info("Reasoning effort '\(currentEffort.rawValue)' rejected and no lower level available, retrying without reasoning effort")
@@ -142,13 +149,27 @@ struct DirectStreamingChatCompletion: ChatCompletionProtocol, Sendable {
         return try await executeStream(copilotRequest: currentRequest, credentials: credentials)
     }
 
-    private func resolveReasoningEffort(for request: CopilotChatRequest) async -> CopilotChatRequest {
+    private func resolveReasoningEffort(for request: CopilotChatRequest, credentials: CopilotCredentials) async -> CopilotChatRequest {
         guard let configured = request.reasoningEffort else { return request }
-        let resolved = await reasoningEffortResolver.resolve(configured: configured, for: request.model)
+
+        let modelSupportsReasoning = await modelEndpointResolver.supportsReasoningEffort(for: request.model, credentials: credentials)
+        if !modelSupportsReasoning {
+            logger.info("Model '\(request.model)' does not support reasoning effort (from capabilities), removing it")
+            return request.withReasoningEffort(nil)
+        }
+
+        guard let resolved = await reasoningEffortResolver.resolve(configured: configured, for: request.model) else {
+            logger.info("Model '\(request.model)' recorded as not supporting reasoning effort, removing it")
+            return request.withReasoningEffort(nil)
+        }
         if resolved != configured {
             logger.info("Clamped reasoning effort from '\(configured.rawValue)' to '\(resolved.rawValue)' for model '\(request.model)'")
         }
         return request.withReasoningEffort(resolved)
+    }
+
+    private func isReasoningUnsupportedError(_ body: String) -> Bool {
+        body.contains("does not support reasoning") || body.contains("invalid_reasoning_effort")
     }
 
     private func executeStream(copilotRequest: CopilotChatRequest, credentials: CopilotCredentials) async throws -> AsyncThrowingStream<SSEEvent, Error> {
