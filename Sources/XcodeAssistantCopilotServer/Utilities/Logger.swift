@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 import Synchronization
 
 public enum LogLevel: String, Sendable, CaseIterable {
@@ -19,6 +20,17 @@ public enum LogLevel: String, Sendable, CaseIterable {
         case .all: 5
         }
     }
+
+    var loggingLevel: Logging.Logger.Level {
+        switch self {
+        case .none: .critical
+        case .error: .error
+        case .warning: .warning
+        case .info: .info
+        case .debug: .debug
+        case .all: .trace
+        }
+    }
 }
 
 public protocol LoggerProtocol: Sendable {
@@ -29,37 +41,87 @@ public protocol LoggerProtocol: Sendable {
     func debug(_ message: @autoclosure () -> String)
 }
 
-public final class Logger: LoggerProtocol, Sendable {
+public final class AppLogger: LoggerProtocol, Sendable {
     public let level: LogLevel
-    private let threshold: Int
-    private let lock = Mutex<Void>(())
+    private let logger: Logging.Logger
 
-    public init(level: LogLevel = .info) {
+    public init(level: LogLevel = .info, label: String = "copilot-server") {
         self.level = level
-        self.threshold = level.priority
+        var logger = Logging.Logger(label: label)
+        logger.logLevel = level.loggingLevel
+        self.logger = logger
+    }
+
+    private static let isBootstrapped = Atomic<Bool>(false)
+
+    public static func bootstrap() {
+        guard isBootstrapped.compareExchange(expected: false, desired: true, ordering: .relaxed).exchanged else {
+            return
+        }
+        LoggingSystem.bootstrap { label in
+            TimestampedLogHandler(label: label)
+        }
     }
 
     public func error(_ message: @autoclosure () -> String) {
-        log(message, at: .error, prefix: "ERROR")
+        guard level.priority >= LogLevel.error.priority else { return }
+        logger.error("\(message())")
     }
 
     public func warn(_ message: @autoclosure () -> String) {
-        log(message, at: .warning, prefix: "WARN")
+        guard level.priority >= LogLevel.warning.priority else { return }
+        logger.warning("\(message())")
     }
 
     public func info(_ message: @autoclosure () -> String) {
-        log(message, at: .info, prefix: "INFO")
+        guard level.priority >= LogLevel.info.priority else { return }
+        logger.info("\(message())")
     }
 
     public func debug(_ message: @autoclosure () -> String) {
-        log(message, at: .debug, prefix: "DEBUG")
+        guard level.priority >= LogLevel.debug.priority else { return }
+        logger.debug("\(message())")
+    }
+}
+
+struct TimestampedLogHandler: LogHandler {
+    var metadata: Logging.Logger.Metadata = [:]
+    var logLevel: Logging.Logger.Level = .info
+    private let label: String
+
+    init(label: String) {
+        self.label = label
     }
 
-    private func log(_ message: () -> String, at level: LogLevel, prefix: String) {
-        guard threshold >= level.priority else { return }
-        let messageValue = message()
-        lock.withLock { _ in
-            print("[\(prefix)] \(messageValue)")
+    subscript(metadataKey key: String) -> Logging.Logger.Metadata.Value? {
+        get { metadata[key] }
+        set { metadata[key] = newValue }
+    }
+
+    func log(event: LogEvent) {
+        let timestamp = Date.now.formatted(.iso8601.year().month().day().time(includingFractionalSeconds: true))
+        let levelString = levelPrefix(event.level)
+        let output = "[\(timestamp)] [\(levelString)] \(event.message)"
+        var stderr = FileHandle.standardError
+        Swift.print(output, to: &stderr)
+    }
+
+    private func levelPrefix(_ level: Logging.Logger.Level) -> String {
+        switch level {
+        case .trace: "TRACE"
+        case .debug: "DEBUG"
+        case .info: "INFO"
+        case .notice: "NOTICE"
+        case .warning: "WARN"
+        case .error: "ERROR"
+        case .critical: "CRITICAL"
         }
+    }
+}
+
+extension FileHandle: @retroactive TextOutputStream {
+    public func write(_ string: String) {
+        let data = Data(string.utf8)
+        self.write(data)
     }
 }

@@ -31,23 +31,23 @@ import Testing
 }
 
 @Test func loggerInitializesWithDefaultLevel() {
-    let logger = Logger()
+    let logger = AppLogger()
     #expect(logger.level == .info)
 }
 
 @Test func loggerInitializesWithSpecifiedLevel() {
-    let logger = Logger(level: .debug)
+    let logger = AppLogger(level: .debug)
     #expect(logger.level == .debug)
 }
 
 @Test func loggerConformsToLoggerProtocol() {
-    let logger = Logger(level: .all)
+    let logger = AppLogger(level: .all)
     let protocolLogger: any LoggerProtocol = logger
     #expect(protocolLogger.level == .all)
 }
 
 @Test func loggerDoesNotCrashWhenLoggingAtAllLevels() {
-    let logger = Logger(level: .all)
+    let logger = AppLogger(level: .all)
     logger.error("test error")
     logger.warn("test warning")
     logger.info("test info")
@@ -55,7 +55,7 @@ import Testing
 }
 
 @Test func loggerWithNoneLevelDoesNotCrash() {
-    let logger = Logger(level: .none)
+    let logger = AppLogger(level: .none)
     logger.error("should be suppressed")
     logger.warn("should be suppressed")
     logger.info("should be suppressed")
@@ -83,28 +83,28 @@ import Testing
 }
 
 @Test func debugMessageIsNotEvaluatedWhenLevelIsBelowDebug() {
-    let logger = Logger(level: .info)
+    let logger = AppLogger(level: .info)
     var evaluated = false
     logger.debug("side effect: \(sideEffect(&evaluated))")
     #expect(!evaluated, "Debug message should not be evaluated when log level is info")
 }
 
 @Test func debugMessageIsEvaluatedWhenLevelIsDebug() {
-    let logger = Logger(level: .debug)
+    let logger = AppLogger(level: .debug)
     var evaluated = false
     logger.debug("side effect: \(sideEffect(&evaluated))")
     #expect(evaluated, "Debug message should be evaluated when log level is debug")
 }
 
 @Test func errorMessageIsNotEvaluatedWhenLevelIsNone() {
-    let logger = Logger(level: .none)
+    let logger = AppLogger(level: .none)
     var evaluated = false
     logger.error("side effect: \(sideEffect(&evaluated))")
     #expect(!evaluated, "Error message should not be evaluated when log level is none")
 }
 
 @Test func infoMessageIsNotEvaluatedWhenLevelIsBelowInfo() {
-    let logger = Logger(level: .warning)
+    let logger = AppLogger(level: .warning)
     var evaluated = false
     logger.info("side effect: \(sideEffect(&evaluated))")
     #expect(!evaluated, "Info message should not be evaluated when log level is warning")

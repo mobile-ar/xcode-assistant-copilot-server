@@ -29,6 +29,7 @@ public struct ServerLauncher: Sendable {
     }
 
     public func run() async throws {
+        AppLogger.bootstrap()
         try validatePort()
         let logger = try buildLogger()
         let configContext = try await loadConfiguration(logger: logger)
@@ -72,18 +73,23 @@ public struct ServerLauncher: Sendable {
 
     private func validatePort() throws {
         guard port >= 1, port <= 65535 else {
-            print("Invalid port \"\(port)\". Must be 1-65535.")
+            writeToStderr("Invalid port \"\(port)\". Must be 1-65535.")
             throw ServerLaunchError.invalidPort(port)
         }
     }
 
-    private func buildLogger() throws -> Logger {
+    private func buildLogger() throws -> AppLogger {
         guard let level = LogLevel(rawValue: logLevel) else {
             let valid = LogLevel.allCases.map(\.rawValue).joined(separator: ", ")
-            print("Invalid log level \"\(logLevel)\". Valid: \(valid)")
+            writeToStderr("Invalid log level \"\(logLevel)\". Valid: \(valid)")
             throw ServerLaunchError.invalidLogLevel(logLevel)
         }
-        return Logger(level: level)
+        return AppLogger(level: level)
+    }
+
+    private func writeToStderr(_ message: String) {
+        var stderr = FileHandle.standardError
+        Swift.print(message, to: &stderr)
     }
 
     private func loadConfiguration(logger: LoggerProtocol) async throws -> ConfigurationContext {
